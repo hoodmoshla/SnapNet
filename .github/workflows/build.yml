@@ -17,6 +17,9 @@ concurrency:
 
 env:
   GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m"
+  # A single universal APK (every ABI in one file) is what gets published, so the artifact a user
+  # downloads from the Releases page is directly installable.
+  RELEASE_ABIS: "arm64-v8a;armeabi-v7a;x86;x86_64"
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -36,10 +39,8 @@ jobs:
           java-version: '21'
 
       # The GitHub-hosted Ubuntu image already contains a complete Android SDK
-      # (build-tools 35.0.0, platform android-35, platform-tools). Using it directly avoids the
-      # third-party `android-actions/setup-android` action entirely - that step was failing in this
-      # repository, and pinning to the runner's own SDK removes both the failure and a supply-chain
-      # dependency. See the "Set up Android SDK" step below for how the path is resolved.
+      # (build-tools 35.0.0, platform android-35, platform-tools), so it is used directly instead of
+      # depending on a third-party setup action.
       - name: Set up Android SDK
         run: |
           set -euo pipefail
@@ -54,7 +55,6 @@ jobs:
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
           echo "$CANDIDATE" >> "$GITHUB_PATH"
-          "$CANDIDATE/sdkmanager" --version
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -71,8 +71,7 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
-  # 2. Static analysis. Reported but never blocking: lint findings on a project
-  #    this size are noisy and must not be able to fail a release.
+  # 2. Static analysis. Reported but never blocking.
   # ---------------------------------------------------------------------------
   lint:
     name: Lint
@@ -115,12 +114,19 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
-  # 3. Build debug + release APKs, verify them, and publish checksums.
+  # 3. Build ONE universal, signed release APK.
   # ---------------------------------------------------------------------------
   build:
-    name: Build APKs
+    name: Build release APK
     runs-on: ubuntu-latest
     needs: [ test ]
+    outputs:
+      version: ${{ steps.version.outputs.name }}
+      tag: ${{ steps.version.outputs.tag }}
+      cert_sha256: ${{ steps.cert.outputs.sha256 }}
+      apk_sha256: ${{ steps.cert.outputs.apk_sha256 }}
+      apk_name: ${{ steps.cert.outputs.apk_name }}
+      apk_size: ${{ steps.cert.outputs.apk_size }}
     steps:
       - uses: actions/checkout@v4
 
@@ -162,11 +168,9 @@ jobs:
             echo "sdkmanager attempt $i failed; retrying"
             sleep 10
           done
-          ls "$ANDROID_HOME/platforms"
-          ls "$ANDROID_HOME/build-tools"
 
-      # Signing is optional. When the secrets are absent the release build is
-      # still produced, just unsigned, so forks and PRs keep working.
+      # The release APK is published to users, so it must be signed with the permanent keystore.
+      # All four values come from repository secrets and are never written into the repository.
       - name: Configure signing
         id: signing
         env:
@@ -175,94 +179,167 @@ jobs:
           ALIAS: ${{ secrets.ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ -n "$SIGNING_KEY" ]; then
-            echo "$SIGNING_KEY" | base64 -d > "$RUNNER_TEMP/release.jks"
-            {
-              echo "storeFile=$RUNNER_TEMP/release.jks"
-              echo "storePassword=$KEY_STORE_PASSWORD"
-              echo "keyAlias=$ALIAS"
-              echo "keyPassword=$KEY_PASSWORD"
-            } > keystore.properties
-            echo "signed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No signing secrets found - building unsigned release APKs."
-            echo "signed=false" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          if [ -z "${SIGNING_KEY:-}" ]; then
+            echo "::error::Signing secrets are missing (SIGNING_KEY, KEY_STORE_PASSWORD, ALIAS, KEY_PASSWORD)."
+            echo "::error::A release APK must be signed with the permanent keystore so it can be installed as an update."
+            exit 1
           fi
+          echo "$SIGNING_KEY" | base64 -d > "$RUNNER_TEMP/release.jks"
+          {
+            echo "storeFile=$RUNNER_TEMP/release.jks"
+            echo "storePassword=$KEY_STORE_PASSWORD"
+            echo "keyAlias=$ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > keystore.properties
+          echo "signed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Build debug APKs
-        run: ./gradlew :app:assembleGenericDebug --stacktrace --no-daemon
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          FILE=buildSrc/src/main/kotlin/Version.kt
+          KIND="$(grep -oE 'Version\.(Alpha|Beta|ReleaseCandidate|Stable)' "$FILE" | tail -1 | sed 's/Version\.//')"
+          MAJ="$(grep -oE 'versionMajor = [0-9]+' "$FILE" | tail -1 | grep -oE '[0-9]+')"
+          MIN="$(grep -oE 'versionMinor = [0-9]+' "$FILE" | tail -1 | grep -oE '[0-9]+')"
+          PAT="$(grep -oE 'versionPatch = [0-9]+' "$FILE" | tail -1 | grep -oE '[0-9]+')"
+          BLD="$(grep -oE 'versionBuild = [0-9]+' "$FILE" | tail -1 | grep -oE '[0-9]+' || echo 0)"
+          case "$KIND" in
+            Stable)           NAME="$MAJ.$MIN.$PAT" ;;
+            Alpha)            NAME="$MAJ.$MIN.$PAT-alpha.$BLD" ;;
+            Beta)             NAME="$MAJ.$MIN.$PAT-beta.$BLD" ;;
+            ReleaseCandidate) NAME="$MAJ.$MIN.$PAT-rc.$BLD" ;;
+            *) echo "::error::Could not determine the version kind"; exit 1 ;;
+          esac
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NAME" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $NAME"
 
-      - name: Build release APKs
-        run: ./gradlew :app:assembleGenericRelease --stacktrace --no-daemon
+      # -PnoSplits turns off per-ABI APK splits and -PABI_FILTERS lists every ABI, which produces a
+      # single universal APK instead of five.
+      - name: Build universal release APK
+        run: |
+          ./gradlew :app:assembleGenericRelease \
+            -PnoSplits \
+            -PABI_FILTERS="$RELEASE_ABIS" \
+            --stacktrace --no-daemon
 
-      - name: Verify APKs
+      - name: Verify APK and compute fingerprints
+        id: cert
         run: |
           set -euo pipefail
           shopt -s nullglob
           APKS=(app/build/outputs/apk/generic/release/*.apk)
-          if [ ${#APKS[@]} -eq 0 ]; then
-            echo "::error::No release APKs were produced"
+          if [ ${#APKS[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one APK, found ${#APKS[@]}: ${APKS[*]}"
             exit 1
           fi
-          AAPT2="$(ls "$ANDROID_HOME"/build-tools/*/aapt2 2>/dev/null | head -1 || true)"
-          for apk in "${APKS[@]}"; do
-            echo "--- $apk ---"
-            ls -lh "$apk"
-            # Fails if the archive is malformed.
-            unzip -tqq "$apk"
-            if [ -n "$AAPT2" ]; then
-              echo -n "package: "
-              "$AAPT2" dump packagename "$apk"
-            fi
+          APK="${APKS[0]}"
+          echo "APK: $APK"
+          ls -lh "$APK"
+
+          # Fails if the archive is malformed.
+          unzip -tqq "$APK"
+
+          # The APK must actually be signed, otherwise it cannot be installed.
+          APKSIGNER="$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | head -1 || true)"
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs "$APK" > /dev/null
+          fi
+
+          CERT_SHA="$(keytool -printcert -jarfile "$APK" \
+            | awk -F'SHA256: ' '/SHA256:/{gsub(/[ \t\r]/,"",$2); print $2; exit}')"
+          APK_SHA="$(sha256sum "$APK" | awk '{print $1}')"
+          APK_NAME="$(basename "$APK")"
+          APK_SIZE="$(du -h "$APK" | awk '{print $1}')"
+
+          for kv in "cert=$CERT_SHA" "apk_sha=$APK_SHA" "name=$APK_NAME" "size=$APK_SIZE"; do
+            echo "computed ${kv%%=*}: ${kv#*=}"
           done
 
-      - name: Calculate SHA-256 checksums
-        run: |
-          cd app/build/outputs/apk/generic/release
-          sha256sum *.apk | tee SHA256SUMS.txt
-          cd -
+          {
+            echo "sha256=$CERT_SHA"
+            echo "apk_sha256=$APK_SHA"
+            echo "apk_name=$APK_NAME"
+            echo "apk_size=$APK_SIZE"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Upload debug APKs
+          {
+            echo "APK: $APK_NAME"
+            echo "APK SHA-256: $APK_SHA"
+            echo "Signer certificate SHA-256: $CERT_SHA"
+          } > "$RUNNER_TEMP/fingerprints.txt"
+
+          # The artifact keeps only the APK so that it downloads as a flat, directly installable file.
+          mkdir -p release-apk
+          cp "$APK" release-apk/
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: snapnet-debug-apks
-          path: app/build/outputs/apk/generic/debug/*.apk
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload release APKs
-        uses: actions/upload-artifact@v4
-        with:
-          name: snapnet-release-apks
-          path: |
-            app/build/outputs/apk/generic/release/*.apk
-            app/build/outputs/apk/generic/release/SHA256SUMS.txt
+          name: snapnet-apk
+          path: release-apk/*.apk
           if-no-files-found: error
           retention-days: 30
 
   # ---------------------------------------------------------------------------
-  # 4. Publish a GitHub Release when a v* tag is pushed.
+  # 4. Publish the APK to GitHub Releases (raw .apk, not a zip).
+  #    Existing releases are untouched, so every published version stays available.
   # ---------------------------------------------------------------------------
   release:
     name: Publish release
     runs-on: ubuntu-latest
     needs: [ build ]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: (github.event_name != 'pull_request' && github.ref == 'refs/heads/main') || startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download release APKs
+      - name: Download APK
         uses: actions/download-artifact@v4
         with:
-          name: snapnet-release-apks
-          path: apks
+          name: snapnet-apk
+          path: apk
+
+      - name: Compose release notes
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          CERT_SHA256: ${{ needs.build.outputs.cert_sha256 }}
+          APK_SHA256: ${{ needs.build.outputs.apk_sha256 }}
+          APK_NAME: ${{ needs.build.outputs.apk_name }}
+          APK_SIZE: ${{ needs.build.outputs.apk_size }}
+        run: |
+          set -euo pipefail
+          cat > notes.md <<EOF
+          نسخة SnapNet $VERSION — تنزيل الفيديو والصوت من Android.
+
+          - اسم الحزمة (Application ID): \`com.snapnet\`
+          - اسم الملف: \`$APK_NAME\`
+          - الحجم: $APK_SIZE
+          - التوقيع الرقمي: Keystore دائم (SHA-256: $CERT_SHA256)
+          - بصمة ملف الـAPK (SHA-256): \`$APK_SHA256\`
+
+          ### التثبيت
+          نزّل ملف \`.apk\` المرفق مباشرة وثبّته (فعّل "تثبيت من مصادر غير معروفة" إن طُلب منك).
+          التوقيع ثابت لكل الإصدارات، لذلك يمكن تثبيت الإصدار الجديد فوق القديم بدون حذف التطبيق.
+
+          ### التحقق من السلامة
+          \`\`\`
+          sha256sum $APK_NAME
+          # يجب أن يساوي:
+          # $APK_SHA256
+          \`\`\`
+          EOF
+          cat notes.md
 
       - name: Publish
         uses: softprops/action-gh-release@v2
         with:
-          files: apks/*
-          generate_release_notes: true
+          tag_name: ${{ needs.build.outputs.tag }}
+          name: SnapNet ${{ needs.build.outputs.version }}
+          body_path: notes.md
+          files: apk/*.apk
           draft: false
           prerelease: false
+          make_latest: true
