@@ -15,10 +15,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m"
+
 jobs:
   # ---------------------------------------------------------------------------
   # 1. Unit tests. These run on a plain JVM and cover the pure logic layers
-  #    (URL/format parsing, error classification, retry policy, file naming).
+  #    (file naming, error classification, retry policy, credential redaction).
   # ---------------------------------------------------------------------------
   test:
     name: Unit tests
@@ -32,14 +35,32 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # The GitHub-hosted Ubuntu image already contains a complete Android SDK
+      # (build-tools 35.0.0, platform android-35, platform-tools). Using it directly avoids the
+      # third-party `android-actions/setup-android` action entirely - that step was failing in this
+      # repository, and pinning to the runner's own SDK removes both the failure and a supply-chain
+      # dependency. See the "Set up Android SDK" step below for how the path is resolved.
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          CANDIDATE="$(ls -d "$SDK"/cmdline-tools/*/bin 2>/dev/null | head -1 || true)"
+          if [ -z "$CANDIDATE" ]; then
+            echo "::error::No usable Android SDK command-line tools found under '$SDK'."
+            ls -la "$SDK" 2>/dev/null || true
+            exit 1
+          fi
+          echo "Using Android SDK: $SDK"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "$CANDIDATE" >> "$GITHUB_PATH"
+          "$CANDIDATE/sdkmanager" --version
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
       - name: Run unit tests
-        run: ./gradlew testGenericDebugUnitTest --stacktrace
+        run: ./gradlew testGenericDebugUnitTest --stacktrace --no-daemon
 
       - name: Upload test report
         if: always()
@@ -51,7 +72,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 2. Static analysis. Reported but never blocking: lint findings on a project
-  #    this size are noisy and should not be able to fail a release.
+  #    this size are noisy and must not be able to fail a release.
   # ---------------------------------------------------------------------------
   lint:
     name: Lint
@@ -59,14 +80,32 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          CANDIDATE="$(ls -d "$SDK"/cmdline-tools/*/bin 2>/dev/null | head -1 || true)"
+          if [ -z "$CANDIDATE" ]; then
+            echo "::error::No usable Android SDK command-line tools found under '$SDK'."
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "$CANDIDATE" >> "$GITHUB_PATH"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Run lint
-        run: ./gradlew :app:lintGenericRelease --stacktrace
+        run: ./gradlew :app:lintGenericRelease --stacktrace --no-daemon
+
       - name: Upload lint report
         if: always()
         uses: actions/upload-artifact@v4
@@ -82,8 +121,6 @@ jobs:
     name: Build APKs
     runs-on: ubuntu-latest
     needs: [ test ]
-    outputs:
-      version: ${{ steps.version.outputs.name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -94,13 +131,39 @@ jobs:
           java-version: '21'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          CANDIDATE="$(ls -d "$SDK"/cmdline-tools/*/bin 2>/dev/null | head -1 || true)"
+          if [ -z "$CANDIDATE" ]; then
+            echo "::error::No usable Android SDK command-line tools found under '$SDK'."
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "$CANDIDATE" >> "$GITHUB_PATH"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
+
+      - name: Verify required SDK packages
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1 || true)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          for i in 1 2 3; do
+            if "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"; then
+              break
+            fi
+            echo "sdkmanager attempt $i failed; retrying"
+            sleep 10
+          done
+          ls "$ANDROID_HOME/platforms"
+          ls "$ANDROID_HOME/build-tools"
 
       # Signing is optional. When the secrets are absent the release build is
       # still produced, just unsigned, so forks and PRs keep working.
@@ -127,16 +190,10 @@ jobs:
           fi
 
       - name: Build debug APKs
-        run: ./gradlew :app:assembleGenericDebug --stacktrace
+        run: ./gradlew :app:assembleGenericDebug --stacktrace --no-daemon
 
       - name: Build release APKs
-        run: ./gradlew :app:assembleGenericRelease --stacktrace
-
-      - name: Read version name
-        id: version
-        run: |
-          NAME=$(grep -oP 'Version\.Alpha\(versionMajor = \K[^,]+' buildSrc/src/main/kotlin/Version.kt || echo "1")
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+        run: ./gradlew :app:assembleGenericRelease --stacktrace --no-daemon
 
       - name: Verify APKs
         run: |
@@ -147,13 +204,16 @@ jobs:
             echo "::error::No release APKs were produced"
             exit 1
           fi
+          AAPT2="$(ls "$ANDROID_HOME"/build-tools/*/aapt2 2>/dev/null | head -1 || true)"
           for apk in "${APKS[@]}"; do
             echo "--- $apk ---"
             ls -lh "$apk"
-            # A build-tools-provided sanity check: this fails if the archive is malformed.
+            # Fails if the archive is malformed.
             unzip -tqq "$apk"
-            # The package name must be the SnapNet one, not the upstream fork's.
-            "$ANDROID_HOME"/build-tools/*/aapt2 dump packagename "$apk" 2>/dev/null || true
+            if [ -n "$AAPT2" ]; then
+              echo -n "package: "
+              "$AAPT2" dump packagename "$apk"
+            fi
           done
 
       - name: Calculate SHA-256 checksums
