@@ -44,10 +44,10 @@ android {
     buildFeatures { buildConfig = true }
 
     defaultConfig {
-        applicationId = "com.junkfood.seal"
+        applicationId = "com.snapnet"
         minSdk = 24
         targetSdk = 35
-        versionCode = 200_000_150
+        versionCode = 100_000_400
         check(versionCode == currentVersionCode)
 
         versionName = baseVersionName
@@ -110,7 +110,7 @@ android {
             }
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
-            resValue("string", "app_name", "Seal Debug")
+            resValue("string", "app_name", "SnapNet Debug")
         }
     }
 
@@ -125,7 +125,7 @@ android {
         create("githubPreview") {
             dimension = "publishChannel"
             applicationIdSuffix = ".preview"
-            resValue("string", "app_name", "Seal Preview")
+            resValue("string", "app_name", "SnapNet Preview")
         }
 
         create("fdroid") {
@@ -139,7 +139,7 @@ android {
     applicationVariants.all {
         outputs.all {
             (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
-                "Seal-${defaultConfig.versionName}-${name}.apk"
+                "SnapNet-${defaultConfig.versionName}-${name}.apk"
         }
     }
 
@@ -151,7 +151,7 @@ android {
     }
     androidResources { generateLocaleConfig = true }
 
-    namespace = "com.junkfood.seal"
+    namespace = "com.snapnet"
 }
 
 ktfmt { kotlinLangStyle() }

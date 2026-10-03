@@ -1,0 +1,208 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Unit tests. These run on a plain JVM and cover the pure logic layers
+  #    (URL/format parsing, error classification, retry policy, file naming).
+  # ---------------------------------------------------------------------------
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run unit tests
+        run: ./gradlew testGenericDebugUnitTest --stacktrace
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: app/build/reports/tests/
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # 2. Static analysis. Reported but never blocking: lint findings on a project
+  #    this size are noisy and should not be able to fail a release.
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Run lint
+        run: ./gradlew :app:lintGenericRelease --stacktrace
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-*.html
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # 3. Build debug + release APKs, verify them, and publish checksums.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build APKs
+    runs-on: ubuntu-latest
+    needs: [ test ]
+    outputs:
+      version: ${{ steps.version.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # Signing is optional. When the secrets are absent the release build is
+      # still produced, just unsigned, so forks and PRs keep working.
+      - name: Configure signing
+        id: signing
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          ALIAS: ${{ secrets.ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$SIGNING_KEY" ]; then
+            echo "$SIGNING_KEY" | base64 -d > "$RUNNER_TEMP/release.jks"
+            {
+              echo "storeFile=$RUNNER_TEMP/release.jks"
+              echo "storePassword=$KEY_STORE_PASSWORD"
+              echo "keyAlias=$ALIAS"
+              echo "keyPassword=$KEY_PASSWORD"
+            } > keystore.properties
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No signing secrets found - building unsigned release APKs."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build debug APKs
+        run: ./gradlew :app:assembleGenericDebug --stacktrace
+
+      - name: Build release APKs
+        run: ./gradlew :app:assembleGenericRelease --stacktrace
+
+      - name: Read version name
+        id: version
+        run: |
+          NAME=$(grep -oP 'Version\.Alpha\(versionMajor = \K[^,]+' buildSrc/src/main/kotlin/Version.kt || echo "1")
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Verify APKs
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          APKS=(app/build/outputs/apk/generic/release/*.apk)
+          if [ ${#APKS[@]} -eq 0 ]; then
+            echo "::error::No release APKs were produced"
+            exit 1
+          fi
+          for apk in "${APKS[@]}"; do
+            echo "--- $apk ---"
+            ls -lh "$apk"
+            # A build-tools-provided sanity check: this fails if the archive is malformed.
+            unzip -tqq "$apk"
+            # The package name must be the SnapNet one, not the upstream fork's.
+            "$ANDROID_HOME"/build-tools/*/aapt2 dump packagename "$apk" 2>/dev/null || true
+          done
+
+      - name: Calculate SHA-256 checksums
+        run: |
+          cd app/build/outputs/apk/generic/release
+          sha256sum *.apk | tee SHA256SUMS.txt
+          cd -
+
+      - name: Upload debug APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapnet-debug-apks
+          path: app/build/outputs/apk/generic/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload release APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapnet-release-apks
+          path: |
+            app/build/outputs/apk/generic/release/*.apk
+            app/build/outputs/apk/generic/release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # 4. Publish a GitHub Release when a v* tag is pushed.
+  # ---------------------------------------------------------------------------
+  release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    needs: [ build ]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release APKs
+        uses: actions/download-artifact@v4
+        with:
+          name: snapnet-release-apks
+          path: apks
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          files: apks/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false

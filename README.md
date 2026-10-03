@@ -1,169 +1,204 @@
-<div align="center">
+# SnapNet
 
-<img width="" src="fastlane/metadata/android/en-US/images/icon.png"  width=160 height=160  align="center">
+**Video and audio downloader for Android — local-first, no account, no server.**
 
-# Seal
+SnapNet is a modern Android app that downloads video and audio from the sites supported by
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) (1,700+ extractors). Everything happens on the device:
+there is no SnapNet backend, no telemetry, and no sign-in.
 
-### Video/Audio Downloader for Android
+<!-- screenshots -->
 
+## Highlights
 
-English
-&nbsp;&nbsp;| &nbsp;&nbsp;
-<a href="https://github.com/JunkFood02/Seal/blob/main/translations/README-zh_Hans.md">简体中文</a>
-&nbsp;&nbsp;| &nbsp;&nbsp;
-<a href="https://github.com/JunkFood02/Seal/blob/main/translations/README-zh_Hant.md">繁體中文</a>
-&nbsp;&nbsp;| &nbsp;&nbsp;
-<a href="https://github.com/JunkFood02/Seal/blob/main/translations/README-ar.md">العربية</a>
-&nbsp;&nbsp;| &nbsp;&nbsp;
-<a href="https://github.com/JunkFood02/Seal/blob/main/translations/README-pt.md">Portuguese</a>
-&nbsp;&nbsp;| &nbsp;&nbsp;
-<a href="https://github.com/JunkFood02/Seal/blob/main/translations/README-ua.md">Українська</a>
-&nbsp;&nbsp;| &nbsp;&nbsp;
-<a href="https://github.com/JunkFood02/Seal/blob/main/translations/README-th.md">ภาษาไทย</a>
-&nbsp;&nbsp;| &nbsp;&nbsp;
-<a href="https://github.com/JunkFood02/Seal/blob/main/translations/README-fa.md">فارسی</a>
-&nbsp;&nbsp;| &nbsp;&nbsp;
-<a href="https://github.com/JunkFood02/Seal/blob/main/translations/README-it.md">Italiano</a>
-&nbsp;&nbsp;| &nbsp;&nbsp;
-<a href="https://github.com/JunkFood02/Seal/blob/main/translations/README-az.md">Azərbaycanca</a>
-&nbsp;&nbsp;| &nbsp;&nbsp;
-<a href="https://github.com/JunkFood02/Seal/blob/main/translations/README-ru.md">Русский</a>
-&nbsp;&nbsp;| &nbsp;&nbsp;
-<a href="https://github.com/JunkFood02/Seal/blob/main/translations/README-sr.md">Српски</a>
-&nbsp;&nbsp;| &nbsp;&nbsp;
-<a href="https://github.com/JunkFood02/Seal/blob/main/translations/README-ja.md">日本語</a>
-&nbsp;&nbsp;| &nbsp;&nbsp;
-<a href="https://github.com/JunkFood02/Seal/blob/main/translations/README-id.md">Indonesia</a>
-&nbsp;&nbsp;| &nbsp;&nbsp;
-<a href="https://github.com/JunkFood02/Seal/blob/main/translations/README-hi.md">हिंदी</a>
-&nbsp;&nbsp;| &nbsp;&nbsp;
-<a href="https://github.com/JunkFood02/Seal/blob/main/translations/README-bn.md">বাংলা</a>
+- **Local by design** — no SnapNet server, no analytics, no Firebase, no Play Services. Media is
+  fetched straight from the site you asked for.
+- **yt-dlp engine** — a bundled CPython runtime runs yt-dlp, so the engine can be updated without
+  shipping a new APK.
+- **JavaScript challenge solving** — a QuickJS-ng engine ships inside the APK for every ABI, so
+  yt-dlp's external-JS (EJS) solver works out of the box and the full YouTube format list is
+  available with no runtime to install.
+- **FFmpeg post-processing** — separate video and audio streams are merged, audio can be extracted
+  and converted, subtitles and thumbnails embedded, and chapters split.
+- **Background downloads** — a real foreground service keeps downloads running with the screen off
+  and the app in the background.
+- **Share and clipboard** — share a link from any app, or paste it; SnapNet never auto-downloads.
+- **Playlists**, format/quality selection, download history, and a Material 3 UI in Arabic and
+  English.
 
+## How it works
 
+```
+UI (Jetpack Compose, Material 3)
+        │
+        ▼
+ViewModel  ──►  Domain layer (use cases, models)
+        │
+        ▼
+DownloaderEngine  ──►  YtDlpEngine
+        │                   │
+        │                   ├─► CPython 3.11 (bundled in the APK)
+        │                   ├─► yt-dlp zipapp (runtime-updatable)
+        │                   ├─► JavaScript runtime (EJS challenges)
+        │                   └─► FFmpeg (bundled, post-processing)
+        │
+        ├─► Storage      (MediaStore / Storage Access Framework)
+        ├─► Cookies      (app-local WebView jar → Netscape cookies.txt)
+        └─► RetryPolicy  (bounded, error-aware)
+```
 
-[![F-Droid](https://img.shields.io/f-droid/v/com.junkfood.seal?color=b4eb12&label=F-Droid&logo=fdroid&logoColor=1f78d2)](https://f-droid.org/en/packages/com.junkfood.seal)
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/JunkFood02/Seal?color=black&label=Stable&logo=github)](https://github.com/JunkFood02/Seal/releases/latest/)
-[![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/JunkFood02/Seal?include_prereleases&label=Preview&logo=Github)](https://github.com/JunkFood02/Seal/releases/)
-[![Keep a Changelog](https://img.shields.io/badge/Changelog-lightgray?style=flat&color=gray&logo=keep-a-changelog)](https://github.com/JunkFood02/Seal/blob/main/CHANGELOG.md)
-[![GitHub all releases](https://img.shields.io/github/downloads/JunkFood02/Seal/total?label=Downloads&logo=github)](https://github.com/JunkFood02/Seal/releases/)
-[![GitHub Repo stars](https://img.shields.io/github/stars/JunkFood02/Seal?style=flat&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4KPHN2ZyBoZWlnaHQ9IjI0IiB2aWV3Qm94PSIwIC05NjAgOTYwIDk2MCIgd2lkdGg9IjI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgogIDxwYXRoIGQ9Im0zNTQtMjQ3IDEyNi03NiAxMjYgNzctMzMtMTQ0IDExMS05Ni0xNDYtMTMtNTgtMTM2LTU4IDEzNS0xNDYgMTMgMTExIDk3LTMzIDE0M1pNMjMzLTgwbDY1LTI4MUw4MC01NTBsMjg4LTI1IDExMi0yNjUgMTEyIDI2NSAyODggMjUtMjE4IDE4OSA2NSAyODEtMjQ3LTE0OUwyMzMtODBabTI0Ny0zNTBaIiBzdHlsZT0iZmlsbDogcmdiKDI0NSwgMjI3LCA2Nik7Ii8%2BCjwvc3ZnPg%3D%3D&color=%23f8e444)](https://github.com/JunkFood02/Seal/stargazers)
-[![Supported-Sites](https://img.shields.io/badge/Sites-9cf?style=flat&logo=data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4KPHN2ZyBoZWlnaHQ9IjI0cHgiIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0cHgiIGZpbGw9IiNGRkZGRkYiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPHBhdGggZD0iTTAgMGgyNHYyNEgwVjB6IiBmaWxsPSJub25lIi8+CiAgPHBhdGggZD0iTTExLjk5IDJDNi40NyAyIDIgNi40OCAyIDEyczQuNDcgMTAgOS45OSAxMEMxNy41MiAyMiAyMiAxNy41MiAyMiAxMlMxNy41MiAyIDExLjk5IDJ6bTYuOTMgNmgtMi45NWMtLjMyLTEuMjUtLjc4LTIuNDUtMS4zOC0zLjU2IDEuODQuNjMgMy4zNyAxLjkxIDQuMzMgMy41NnpNMTIgNC4wNGMuODMgMS4yIDEuNDggMi41MyAxLjkxIDMuOTZoLTMuODJjLjQzLTEuNDMgMS4wOC0yLjc2IDEuOTEtMy45NnpNNC4yNiAxNEM0LjEgMTMuMzYgNCAxMi42OSA0IDEycy4xLTEuMzYuMjYtMmgzLjM4Yy0uMDguNjYtLjE0IDEuMzItLjE0IDJzLjA2IDEuMzQuMTQgMkg0LjI2em0uODIgMmgyLjk1Yy4zMiAxLjI1Ljc4IDIuNDUgMS4zOCAzLjU2LTEuODQtLjYzLTMuMzctMS45LTQuMzMtMy41NnptMi45NS04SDUuMDhjLjk2LTEuNjYgMi40OS0yLjkzIDQuMzMtMy41NkM4LjgxIDUuNTUgOC4zNSA2Ljc1IDguMDMgOHpNMTIgMTkuOTZjLS44My0xLjItMS40OC0yLjUzLTEuOTEtMy45NmgzLjgyYy0uNDMgMS40My0xLjA4IDIuNzYtMS45MSAzLjk2ek0xNC4zNCAxNEg5LjY2Yy0uMDktLjY2LS4xNi0xLjMyLS4xNi0ycy4wNy0xLjM1LjE2LTJoNC42OGMuMDkuNjUuMTYgMS4zMi4xNiAycy0uMDcgMS4zNC0uMTYgMnptLjI1IDUuNTZjLjYtMS4xMSAxLjA2LTIuMzEgMS4zOC0zLjU2aDIuOTVjLS45NiAxLjY1LTIuNDkgMi45My00LjMzIDMuNTZ6TTE2LjM2IDE0Yy4wOC0uNjYuMTQtMS4zMi4xNC0ycy0uMDYtMS4zNC0uMTQtMmgzLjM4Yy4xNi42NC4yNiAxLjMxLjI2IDJzLS4xIDEuMzYtLjI2IDJoLTMuMzh6IiBzdHlsZT0iZmlsbDogcmdiKDE2MiwgMTk4LCAyMzQpOyIvPgo8L3N2Zz4=&label=Supported)](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md)
-[![Telegram Channel](https://img.shields.io/badge/Telegram-Seal-blue?style=flat&logo=telegram)](https://t.me/seal_app)
-[![Matrix](https://img.shields.io/matrix/seal-space%3Amatrix.org?server_fqdn=matrix.org&style=flat&logo=element&label=Matrix&color=%230DBD8B)
-](https://matrix.to/#/#seal-space:matrix.org)
+Failures from the engine are classified into a small, stable set of kinds
+(`LOGIN_REQUIRED`, `COOKIES_REQUIRED`, `PO_TOKEN_REQUIRED`, `NETWORK_ERROR`, `GEO_BLOCKED`,
+`VIDEO_UNAVAILABLE`, `FORMAT_UNAVAILABLE`, `RATE_LIMITED`, `DRM_PROTECTED`, `UNSUPPORTED_URL`, …)
+instead of surfacing raw engine text, and only genuinely transient kinds are retried.
 
+## Requirements
 
-</div>
+- Android 7.0 (API 24) or newer. Tested target: Android 13–16.
+- ~150 MB of free space for the app plus temporary download space.
 
+## Building
 
-## 📱 Screenshots
+```bash
+git clone https://github.com/hoodmoshla/SnapNet.git
+cd SnapNet
+./gradlew :app:assembleGenericDebug     # debug APKs (per ABI + universal)
+./gradlew :app:assembleGenericRelease   # release APKs
+```
 
-<div align="center">
-<div>
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1.jpg" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/2.jpg" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/3.jpg" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/4.jpg" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/5.jpg" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/6.jpg" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/7.jpg" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/8.jpg" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/9.jpg" width="30%" />
-</div>
-</div>
+Release signing is driven by an optional `keystore.properties` at the repository root:
 
-<br>
+```properties
+storeFile=release.jks
+storePassword=…
+keyAlias=…
+keyPassword=…
+```
 
-## 📖 Features
+When the file is absent the release build is produced unsigned, which is what the CI workflow does on
+forks and pull requests.
 
-- Download videos and audio files from video platforms supported by [yt-dlp](https://github.com/yt-dlp/yt-dlp) (formerly youtube-dl).
+### Rebuilding the JavaScript engine
 
-- Embed metadata and video thumbnail into extracted audio files supported by [mutagen](https://github.com/quodlibet/mutagen).
+The QuickJS binaries in `app/src/main/jniLibs/*/libqjs.so` are built from unmodified upstream
+sources and committed so that the shipped artifact is reproducible:
 
-- Download all videos in the playlist with one click.
+```bash
+tools/build-quickjs.sh          # requires zig on PATH
+```
 
-- Use embedded [aria2c](https://github.com/aria2/aria2) as external downloader for all your downloads.
+They are statically linked against musl so they run without bionic's dynamic linker, and they are
+placed in `jniLibs` because Android only grants `exec()` to files in `nativeLibraryDir`.
+See `app/src/main/assets/licenses/quickjs-ng.txt` for the upstream licence.
 
-- Embed subtitles into the downloaded videos.
+### Continuous integration
 
-- Execute custom yt-dlp commands with templates.
+`.github/workflows/build.yml` runs unit tests, builds debug and release APKs, verifies each archive,
+computes SHA-256 checksums, and uploads everything as artifacts. Pushing a `v*` tag additionally
+publishes a GitHub Release. Signing secrets (`SIGNING_KEY`, `KEY_STORE_PASSWORD`, `ALIAS`,
+`KEY_PASSWORD`) are optional and are never written to the repository.
 
-- Manage in-app downloads and custom command templates.
+## Supported sites
 
-- Easy to use and user-friendly.
+SnapNet delegates to yt-dlp, so site support follows yt-dlp's own extractor list. Commonly used
+targets include YouTube (including Shorts and playlists), TikTok, Facebook, Instagram, X/Twitter,
+Reddit, SoundCloud, Vimeo, Twitch, Dailymotion, Pinterest, Threads, Bilibili and Streamable.
 
-- [Material Design 3](https://m3.material.io/) style UI, with dynamic color theme.
+Sites that require a login, are region-locked, or are DRM-protected are reported clearly rather than
+silently failing. SnapNet does **not** attempt to bypass DRM.
 
-- MAD: UI and logic written with pure Kotlin. Single activity, no fragments, only composable destinations.
+## Cookies
 
+Some content (age-restricted videos, private or members-only posts, and sites that gate media behind
+a session) needs cookies.
 
+SnapNet lets you sign in to a site inside a built-in WebView, then converts the app's own cookie jar
+into a Netscape `cookies.txt` on the device. Cookies are handed only to the local yt-dlp process and
+are sent only to the site you signed in to. They are never uploaded anywhere, never written to logs,
+and they are excluded from backups.
 
-## ⬇️ Download
+You are never asked to type a username or password into SnapNet itself.
 
-For most devices, it is recommended to install the **arm64-v8a** version of the apks
+See [SECURITY.md](SECURITY.md) for the full threat model.
 
-- Download the latest stable version from [GitHub releases](https://github.com/JunkFood02/Seal/releases/latest)
-  - Install the [pre-release](https://github.com/JunkFood02/Seal/releases/) versions to help us test out new features & changes
+## Verified behaviour
 
-- Stable releases are also available on [F-Droid](https://f-droid.org/packages/com.junkfood.seal/)
+Engine behaviour is validated by executing real commands. The following were reproduced against
+**yt-dlp 2026.08.19** with a JavaScript runtime present:
 
-<!-- [<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
-     alt="Get it on F-Droid"
-     height="70">](https://f-droid.org/packages/com.junkfood.seal/) -->
+| Check | Result | Status |
+| --- | --- | --- |
+| YouTube format listing, no JS runtime | 44 formats, plus the warning *"No supported JavaScript runtime could be found … some formats may be missing"* | VERIFIED |
+| YouTube format listing, with the bundled QuickJS | **45 formats, warning gone** | VERIFIED |
+| EJS solver actually runs | yt-dlp logs `[jsc:quickjs] Solving JS challenges using quickjs` and `Running QuickJS: …/libqjs.so --script <tmp>.js` | VERIFIED |
+| 720p video + audio download and merge | both streams downloaded and merged to a playable 1280×720 MP4 (av1 + opus, 213 s) | VERIFIED |
+| Audio extraction | extracted and converted to a valid MP3 (≈139 kbps) | VERIFIED |
+| QuickJS binary architecture | correct ELF machine for arm64-v8a, armeabi-v7a, x86, x86_64 | VERIFIED |
 
-## 💬 Contact
+These checks describe the engine pipeline that SnapNet drives. They are not a substitute for
+on-device testing of the app itself; see *Limitations* below.
 
-Join our [Telegram Channel](https://t.me/seal_app) or [Matrix Space](https://matrix.to/#/#seal-space:matrix.org) for discussion, announcements, and releases!
+## Limitations
 
-## 💖 Sponsors
+- **No DRM support**, by design.
+- **Login-gated and region-locked content** needs cookies you supply, and may still be unavailable.
+- **YouTube changes constantly.** If a download breaks, update the engine from
+  *Settings → Advanced → yt-dlp version*.
+- Some sites use TLS fingerprinting that yt-dlp can only bypass with `curl_cffi`, which is not
+  present in the portable zipapp build used on Android.
+- FFmpeg and the JavaScript runtime are bundled natively and therefore can only be updated by
+  installing a new APK, not at runtime.
 
-<p><!-- sponsors --><a href="https://github.com/Opposum102"><img src="https:&#x2F;&#x2F;github.com&#x2F;Opposum102.png" width="60px" alt="User avatar: " /></a><!-- sponsors --></p>
+## Privacy
 
+No analytics, no telemetry, no advertising, no user accounts. URLs and cookies stay on the device.
+The only network calls SnapNet makes are to the site you asked it to download from, and to GitHub to
+update the yt-dlp engine.
 
-Seal will be always free and open source for everyone. If you like it, please consider [sponsoring me](https://github.com/sponsors/JunkFood02)!
+## Licences
 
-## 🤝 Contributing
+SnapNet is licensed under the **GNU General Public License v3.0** (see [LICENSE](LICENSE)), inherited
+from the upstream project it is based on. Because of this, SnapNet must remain open source: if you
+distribute a build, you must also make the corresponding source available.
 
-Contributions are welcome!
+Bundled and linked components:
 
-You can help translate Seal on [Hosted Weblate](https://hosted.weblate.org/projects/seal/).
-	
-[![Translate status](https://hosted.weblate.org/widgets/seal/-/strings/multi-auto.svg)](https://hosted.weblate.org/engage/seal/)
-	
->[!Note]
->
->For submitting bug reports, feature requests, questions, or any other ideas to improve, please read [CONTRIBUTING.md](https://github.com/JunkFood02/Seal/blob/main/CONTRIBUTING.md) for instructions and guidelines first.
+| Component | Licence |
+| --- | --- |
+| yt-dlp | Unlicense |
+| yt-dlp-ejs | Unlicense (bundles MIT and ISC components) |
+| QuickJS-ng (`libqjs.so`) | MIT |
+| youtubedl-android | GPL-3.0 |
+| CPython | PSF |
+| FFmpeg | depends on build (LGPL/GPL) |
+| aria2 | GPL-2.0+ |
+| AndroidX, Compose, Koin, OkHttp, Coil | Apache-2.0 |
+| MMKV | BSD-3-Clause |
 
-## ⭐️ Star History
+## Not yet implemented
 
-[![Star History Chart](https://api.star-history.com/svg?repos=JunkFood02/Seal&type=Timeline)](https://star-history.com/#JunkFood02/Seal&Timeline)
+SnapNet is functional end-to-end for analysing a link, choosing a format, downloading, merging with
+FFmpeg, and keeping the download alive in the background. The following are **known gaps**, listed
+here rather than left as silent TODOs in the code:
 
+- **Favourites** are not implemented yet.
+- **Pause/resume** is not implemented. A running task can be cancelled, and a failed task retried,
+  but an in-flight download cannot be paused and continued.
+- **Pause/resume** stops a running task and keeps its partial file so it can be continued; what is
+  missing is a per-task speed/ETA/size read-out in the queue screen.
+- **The settings surface** still exposes options inherited from the upstream project; some are not
+  yet verified against the new engine layer.
+- **Focus areas for the next iteration:** a dedicated download-manager screen with per-task speed,
+  ETA and size, and a simplified home screen.
 
-## 🧱 Credits
+## Credits
 
-Seal is a simple GUI of [yt-dlp](https://github.com/yt-dlp/yt-dlp), based on [youtubedl-android](https://github.com/yausername/youtubedl-android)
+SnapNet is a fork of [Seal](https://github.com/JunkFood02/Seal) by
+[JunkFood02](https://github.com/JunkFood02), which is itself built on
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) and
+[youtubedl-android](https://github.com/yausername/youtubedl-android). Thanks to those projects and to
+the translators who made the localisations possible.
 
-Some of the UI designs and codes are borrowed from [Read You](https://github.com/Ashinch/ReadYou) and [Music You](https://github.com/Kyant0/MusicYou)
+## Contributing
 
-[dvd](https://github.com/yausername/dvd)
-
-[Material color utilities](https://github.com/material-foundation/material-color-utilities)
-
-[Monet](https://github.com/Kyant0/Monet)
-
-## 📃 License
-
-[![GitHub](https://img.shields.io/github/license/JunkFood02/Seal?style=for-the-badge)](https://github.com/JunkFood02/Seal/blob/main/LICENSE)
-
->[!Warning]
->
->Except for the source code licensed under the GPLv3 license,
->all other parties are prohibited from using Seal's name as a downloader app,
->and the same is true for Seal's derivatives.
->Derivatives include but are not limited to forks and unofficial builds.
-
-<div align="right">
-<table><td>
-<a href="#start-of-content">👆 Scroll to top</a>
-</td></table>
-</div>
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues should follow [SECURITY.md](SECURITY.md)
+instead of the public issue tracker.
