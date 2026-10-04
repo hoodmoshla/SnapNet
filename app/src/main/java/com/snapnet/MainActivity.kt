@@ -34,6 +34,20 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
 
         context = this.baseContext
+
+        // Handle the intent that launched this activity.
+        //
+        // Only onNewIntent() used to be handled, so choosing "SnapNet" from the system share sheet
+        // with the app closed opened the app and did nothing at all with the link - the action was
+        // never dispatched. onNewIntent() alone is only correct for an activity that is already
+        // running (launchMode is singleTask, so a second share arrives there).
+        //
+        // Guarded by savedInstanceState so a configuration change does not re-raise the dialog for
+        // the same intent.
+        if (savedInstanceState == null) {
+            handleShareIntent(intent)
+        }
+
         setContent {
             KoinContext {
                 val windowSizeClass = calculateWindowSizeClass(this)
@@ -51,39 +65,32 @@ class MainActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        val url = intent.getSharedURL()
-        if (url != null) {
-            dialogViewModel.postAction(DownloadDialogViewModel.Action.ShowSheet(listOf(url)))
-        }
+        // Keep the activity's current intent in sync with the one that just arrived, so later code
+        // (and a recreated activity) sees the new share rather than the original launch intent.
+        setIntent(intent)
+        handleShareIntent(intent)
     }
 
-    private fun Intent.getSharedURL(): String? {
-        val intent = this
-
-        return when (intent.action) {
-            Intent.ACTION_VIEW -> {
-                intent.dataString
-            }
-
-            Intent.ACTION_SEND -> {
-                intent.getStringExtra(Intent.EXTRA_TEXT)?.let { sharedContent ->
-                    intent.removeExtra(Intent.EXTRA_TEXT)
-                    matchUrlFromSharedText(sharedContent).also { matchedUrl ->
-                        if (sharedUrlCached != matchedUrl) {
-                            sharedUrlCached = matchedUrl
-                        }
-                    }
-                }
-            }
-
-            else -> {
-                null
-            }
-        }
+    /**
+     * Extracts a link from a share/view intent and opens the same download dialog that the quick
+     * download activity uses. Does nothing when there is no usable link, so the app never opens an
+     * empty sheet.
+     */
+    private fun handleShareIntent(intent: Intent?) {
+        val url = intent?.getSharedURL() ?: return
+        dialogViewModel.postAction(DownloadDialogViewModel.Action.ShowSheet(listOf(url)))
     }
 
-    companion object {
-        private const val TAG = "MainActivity"
-        private var sharedUrlCached = ""
-    }
+    /**
+     * @return the first URL found in the intent, or null.
+     *
+     * `EXTRA_TEXT` is deliberately left untouched: removing it before the link has been captured
+     * risks losing the share if this activity is recreated before the dialog is shown.
+     */
+    private fun Intent.getSharedURL(): String? =
+        when (action) {
+            Intent.ACTION_VIEW -> dataString
+            Intent.ACTION_SEND -> getStringExtra(Intent.EXTRA_TEXT)?.let(::matchUrlFromSharedText)
+            else -> null
+        }?.takeIf { it.isNotBlank() }
 }

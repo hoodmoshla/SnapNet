@@ -71,11 +71,31 @@
             </intent-filter>
         </activity>
 
+        <!--
+            A downloader needs a foreground service that can outlive the app being backgrounded, and
+            whose runtime is not capped. The options were:
+
+              * dataSync              - semantically close, but Android 15+ caps it at six hours in
+                                        any twenty-four and it cannot be started from the background,
+                                        which would cut off long transfers.
+              * user-initiated data   - the JobScheduler route is the most "correct" for long,
+                transfer job            user-started transfers, but the work would have to move into a
+                                        JobService, which is a redesign of how yt-dlp child
+                                        processes are supervised.
+              * specialUse            - keeps the existing service and has no runtime cap.
+
+            specialUse is therefore kept, and it requires this property declaring the subtype:
+            https://developer.android.com/develop/background-work/services/fgs/service-types
+        -->
         <service
             android:name=".DownloadService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-initiated media download. Keeps the bundled yt-dlp child process alive and shows download progress while the user's download is running." />
+        </service>
 
         <activity
             android:name=".MainActivity"

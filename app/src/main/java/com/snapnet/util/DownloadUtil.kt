@@ -94,7 +94,6 @@ object DownloadUtil {
             with(request) {
                 //            addOption("--compat-options", "no-youtube-unavailable-videos")
                 addOption("--flat-playlist")
-                enableJsRuntime(context)
                 addOption("--dump-single-json")
                 addOption("-o", BASENAME)
                 addOption("-R", "1")
@@ -181,7 +180,6 @@ object DownloadUtil {
                     }
                     addOption("-R", "1")
                     addOption("--no-playlist")
-                    enableJsRuntime(context)
                     addOption("--socket-timeout", "5")
                 }
             return getVideoInfo(request, taskKey)
@@ -686,7 +684,6 @@ object DownloadUtil {
             request
                 .apply {
                     addOption("--no-mtime")
-                    enableJsRuntime(context)
                     //                addOption("-v")
                     if (cookies) {
                         enableCookies(userAgentString)
@@ -891,7 +888,6 @@ object DownloadUtil {
                 YoutubeDLRequest(urlList).apply {
                     commandDirectory.takeIf { it.isNotEmpty() }?.let { addOption("-P", it) }
                     addOption("--newline")
-                    enableJsRuntime(context)
                     if (aria2c) {
                         enableAria2c()
                     }
@@ -933,7 +929,6 @@ object DownloadUtil {
                 YoutubeDLRequest(urlList).apply {
                     commandDirectory.takeIf { it.isNotEmpty() }?.let { addOption("-P", it) }
                     addOption("--newline")
-                    enableJsRuntime(context)
                     if (aria2c) {
                         enableAria2c()
                     }

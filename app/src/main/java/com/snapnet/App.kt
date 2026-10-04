@@ -2,6 +2,9 @@ package com.snapnet
 
 import android.annotation.SuppressLint
 import android.app.Application
+import android.app.Application.ActivityLifecycleCallbacks
+import android.os.Bundle
+import android.app.Activity
 import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
@@ -40,6 +43,7 @@ import com.snapnet.util.SDCARD_URI
 import com.snapnet.util.UpdateUtil
 import com.snapnet.util.VIDEO_DIRECTORY
 import com.snapnet.util.YT_DLP_VERSION
+import com.snapnet.util.YtDlpVersion
 import com.tencent.mmkv.MMKV
 import com.yausername.aria2c.Aria2c
 import com.yausername.ffmpeg.FFmpeg
@@ -83,6 +87,26 @@ class App : Application() {
                 else getPackageInfo(packageName, 0)
             }
         applicationScope = CoroutineScope(SupervisorJob())
+
+        // Retry a refused foreground-service start as soon as any activity becomes visible, which is
+        // the only moment Android allows the service to be started.
+        registerActivityLifecycleCallbacks(
+            object : ActivityLifecycleCallbacks {
+                override fun onActivityStarted(activity: Activity) {
+                    if (wantsService && !isServiceRunning) {
+                        Log.i(TAG, "retrying the download foreground service now that the app is visible")
+                        startService()
+                    }
+                }
+
+                override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+                override fun onActivityResumed(activity: Activity) {}
+                override fun onActivityPaused(activity: Activity) {}
+                override fun onActivityStopped(activity: Activity) {}
+                override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+                override fun onActivityDestroyed(activity: Activity) {}
+            }
+        )
         DynamicColors.applyToActivitiesIfAvailable(this)
 
         clipboard = getSystemService()!!
@@ -93,6 +117,16 @@ class App : Application() {
                 YoutubeDL.init(this@App)
                 FFmpeg.init(this@App)
                 Aria2c.init(this@App)
+
+                // Always publish a concrete engine version. The library only stores one after a
+                // runtime update, which left a freshly installed app reporting an empty version and
+                // made it impossible to tell which yt-dlp was actually in use.
+                if (YT_DLP_VERSION.getString().isEmpty()) {
+                    YtDlpVersion.resolveBundledVersion(this@App)?.let { bundled ->
+                        Log.i(TAG, "bundled yt-dlp version: $bundled")
+                        PreferenceUtil.encodeString(YT_DLP_VERSION, bundled)
+                    } ?: Log.w(TAG, "could not determine the bundled yt-dlp version")
+                }
                 DownloadUtil.getCookiesContentFromDatabase().getOrNull()?.let {
                     FileUtil.writeContentToFile(it, getCookiesFile())
                 }
@@ -140,6 +174,19 @@ class App : Application() {
         /** Binder handle to the running service, used to tear it down cleanly. */
         private var boundService: DownloadService? = null
 
+        /**
+         * True while a download is in flight and the service therefore ought to be running.
+         *
+         * A foreground service may only be started while the app is visible, so an attempt made from
+         * the background can be refused. The flag lets the app retry the moment it is visible again
+         * instead of silently losing background execution for the rest of the download.
+         */
+        @Volatile private var wantsService = false
+
+        /** Non-null when the last attempt to start the service was refused; surfaced in diagnostics. */
+        @Volatile var foregroundServiceError: String? = null
+            private set
+
         private val connection =
             object : ServiceConnection {
                 override fun onServiceConnected(className: ComponentName, service: IBinder) {
@@ -165,18 +212,31 @@ class App : Application() {
          * the call is guarded and the failure is logged.
          */
         fun startService() {
+            wantsService = true
             if (isServiceRunning) return
             val app = context.applicationContext
             val intent = Intent(app, DownloadService::class.java)
             try {
                 ContextCompat.startForegroundService(app, intent)
                 app.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+                foregroundServiceError = null
             } catch (e: Exception) {
-                Log.w(TAG, "could not start the download foreground service", e)
+                // Android 12+ refuses a foreground service start from the background. Failing here
+                // means the download would be killed if the user leaves the app, so record it loudly
+                // instead of swallowing it; the activity lifecycle callback below retries as soon as
+                // the app is visible again.
+                foregroundServiceError = "${e.javaClass.simpleName}: ${e.message ?: "no message"}"
+                Log.e(
+                    TAG,
+                    "download foreground service could not be started; the running download will not survive being backgrounded until the app is shown again",
+                    e,
+                )
             }
         }
 
         fun stopService() {
+            wantsService = false
+            foregroundServiceError = null
             val app = context.applicationContext
             try {
                 if (isServiceRunning) app.unbindService(connection)

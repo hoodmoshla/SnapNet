@@ -108,9 +108,6 @@ const val USE_CUSTOM_AUDIO_PRESET = "custom_audio_preset"
 
 const val MERGE_MULTI_AUDIO_STREAM = "multi_audio_stream"
 
-const val JS_RUNTIME_PATH = "js_runtime_path"
-const val JS_RUNTIME_AUTO = "js_runtime_auto"
-
 const val DOWNLOAD_TYPE_INITIALIZATION = "download_type_init"
 private const val DOWNLOAD_TYPE = "download_type"
 
@@ -209,7 +206,6 @@ private val StringPreferenceDefaults =
         SUBTITLE_LANGUAGE to "en.*,.*-orig",
         OUTPUT_TEMPLATE to DownloadUtil.OUTPUT_TEMPLATE_ID,
         CUSTOM_OUTPUT_TEMPLATE to DownloadUtil.OUTPUT_TEMPLATE_ID,
-        JS_RUNTIME_PATH to "",
     )
 
 private val BooleanPreferenceDefaults =
@@ -220,7 +216,6 @@ private val BooleanPreferenceDefaults =
         YT_DLP_AUTO_UPDATE to true,
         NOTIFICATION to true,
         EMBED_METADATA to true,
-        JS_RUNTIME_AUTO to true,
         USE_CUSTOM_AUDIO_PRESET to false,
     )
 

@@ -1,20 +1,23 @@
-QuickJS-ng (libqjs.so)
-======================
-Files: arm64-v8a/libqjs.so, armeabi-v7a/libqjs.so, x86/libqjs.so, x86_64/libqjs.so
-Upstream: https://github.com/quickjs-ng/quickjs
-Version: 0.17.0
-License: MIT
+QuickJS - the JavaScript runtime used by yt-dlp
+==============================================
+Ships as: lib/<abi>/libqjs.so, one copy per ABI, supplied by the youtubedl-android library
+          (io.github.junkfood02.youtubedl-android:library), version 0.18.1.
+Upstream: https://bellard.org/quickjs/
+Version:  2025-04-26
+License:  MIT
 
-QuickJS-ng is a JavaScript engine used as yt-dlp's external-JS (EJS) challenge solver. yt-dlp
-requires a JS runtime for full YouTube support; SnapNet passes the path of this binary to yt-dlp via
-`--js-runtimes quickjs:<path>`.
+yt-dlp needs a JavaScript engine to solve YouTube's signature and `n` challenges and to work with
+its external-JS (EJS) components. youtubedl-android bundles QuickJS for every supported ABI, ships
+the yt-dlp-ejs package alongside it, and appends `--js-runtimes quickjs:<path>` to each yt-dlp
+invocation it runs.
 
-These binaries are statically linked against musl so that they can execute without bionic's dynamic
-linker. They are built from unmodified upstream sources by tools/build-quickjs.sh.
+SnapNet does not build or bundle its own copy: an earlier revision shipped a locally compiled
+QuickJS-NG in jniLibs, which duplicated the library's engine and was removed once the library began
+providing one.
 
-MIT License
+QuickJS is distributed under the MIT licence:
 
-Copyright (c) 2017-2025 Fabrice Bellard, Charlie Gordon, and QuickJS-ng contributors
+Copyright (c) 2017-2025 Fabrice Bellard
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
 associated documentation files (the "Software"), to deal in the Software without restriction,
