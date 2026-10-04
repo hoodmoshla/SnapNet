@@ -41,7 +41,11 @@ build() {
   local target="$1" abi="$2"
   echo "==> building ${abi} (${target})"
   mkdir -p "$OUT/$abi"
-  zig cc -target "$target" -static -O2 -Wl,-s -D_GNU_SOURCE -I"$SRC" \
+  # -static-pie is required, not cosmetic: Android rejects any ELF in lib/<abi>/ whose e_type is
+  # not ET_DYN, and a plain `-static` build produces an ET_EXEC executable, which makes the whole
+  # APK fail to install ("the package appears to be invalid"). A static PIE has e_type = ET_DYN
+  # while still needing no dynamic linker, which musl provides on Android.
+  zig cc -target "$target" -static-pie -fPIE -pie -O2 -Wl,-s -D_GNU_SOURCE -I"$SRC" \
     -o "$OUT/$abi/libqjs.so" \
     "$SRC/qjs.c" "$SRC/quickjs.c" "$SRC/quickjs-libc.c" \
     "$SRC/libregexp.c" "$SRC/libunicode.c" "$SRC/dtoa.c" \
