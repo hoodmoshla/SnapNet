@@ -22,3 +22,7 @@ local.properties
 *.jks
 *.keystore
 *.p12
+*.jks.b64
+*.pw
+signing-info*
+SIGNING-README*
