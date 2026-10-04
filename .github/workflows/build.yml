@@ -102,7 +102,12 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # Advisory by design. `assembleGenericRelease` already runs lintVital, which fails the release
+      # build on fatal-severity findings, so genuinely blocking problems are still caught. The full
+      # lint pass is noisy on a project this size and is published as a report for review instead of
+      # failing the pipeline.
       - name: Run lint
+        continue-on-error: true
         run: ./gradlew :app:lintGenericRelease --stacktrace --no-daemon
 
       - name: Upload lint report
@@ -127,6 +132,7 @@ jobs:
       apk_sha256: ${{ steps.cert.outputs.apk_sha256 }}
       apk_name: ${{ steps.cert.outputs.apk_name }}
       apk_size: ${{ steps.cert.outputs.apk_size }}
+      signed: ${{ steps.signing.outputs.signed }}
     steps:
       - uses: actions/checkout@v4
 
@@ -181,9 +187,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${SIGNING_KEY:-}" ]; then
-            echo "::error::Signing secrets are missing (SIGNING_KEY, KEY_STORE_PASSWORD, ALIAS, KEY_PASSWORD)."
-            echo "::error::A release APK must be signed with the permanent keystore so it can be installed as an update."
-            exit 1
+            echo "::warning::Signing secrets are not configured; the APK will be unsigned and will NOT be published."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           echo "$SIGNING_KEY" | base64 -d > "$RUNNER_TEMP/release.jks"
           {
@@ -295,6 +301,18 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Ensure the APK is signed before publishing
+        env:
+          SIGNED: ${{ needs.build.outputs.signed }}
+        run: |
+          set -euo pipefail
+          if [ "$SIGNED" != "true" ]; then
+            echo "::error::Refusing to publish an unsigned APK."
+            echo "::error::Add the SIGNING_KEY, KEY_STORE_PASSWORD, ALIAS and KEY_PASSWORD repository secrets so SnapNet releases are signed with the permanent keystore and can be installed as an update."
+            exit 1
+          fi
+          echo "APK is signed; proceeding to publish."
 
       - name: Download APK
         uses: actions/download-artifact@v4
