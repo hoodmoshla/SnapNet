@@ -60,7 +60,9 @@ android {
                     isEnable = true
                     reset()
                     include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
-                    isUniversalApk = true
+                    // One APK per ABI, each carrying only its own native libraries. A universal APK
+                    // would bundle all four architectures and roughly quadruple the download.
+                    isUniversalApk = false
                 }
             }
         } else {
@@ -137,9 +139,22 @@ android {
     lint { disable.addAll(listOf("MissingTranslation", "ExtraTranslation", "MissingQuantity")) }
 
     applicationVariants.all {
+        val buildTypeName = buildType.name
         outputs.all {
-            (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
-                "SnapNet-${defaultConfig.versionName}-${name}.apk"
+            val outputImpl = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            // Match on the known ABI identifiers rather than inspecting the filter type: the type of
+            // getFilterType() differs between AGP API generations (a String in the legacy FilterData
+            // API, an enum in FilterConfiguration), while getIdentifier() is a String in both.
+            val abi =
+                listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+                    .firstOrNull { candidate ->
+                        outputImpl.filters.any { it.identifier == candidate }
+                    }
+            // Deliberately excludes the flavour name so the published files are predictable:
+            //   SnapNet-<version>-arm64-v8a-release.apk
+            outputImpl.outputFileName =
+                if (abi != null) "SnapNet-${defaultConfig.versionName}-$abi-$buildTypeName.apk"
+                else "SnapNet-${defaultConfig.versionName}-$buildTypeName.apk"
         }
     }
 

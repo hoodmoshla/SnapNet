@@ -17,19 +17,18 @@ concurrency:
 
 env:
   GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m"
-  # A single universal APK (every ABI in one file) is what gets published, so the artifact a user
-  # downloads from the Releases page is directly installable.
-  RELEASE_ABIS: "arm64-v8a;armeabi-v7a;x86;x86_64"
   # The permanent SnapNet signing certificate. Every published APK must be signed with exactly this
   # key: Android refuses to install an update signed by a different one, so a rotated key would
   # strand every existing installation. CI fails if a build is signed with anything else.
-  # Regenerate with tools/generate-keystore.sh only if this is a deliberate, communicated break.
   EXPECTED_SIGNING_CERT_SHA256: "31:60:36:6E:4E:39:07:8C:C0:D5:88:99:E1:41:68:07:79:B1:23:1E:48:09:01:E7:0C:55:A6:F2:06:C0:5E:57"
+  # One APK per ABI is published. Each contains the native libraries for that ABI only, which keeps
+  # the download small; a universal APK would carry all four and be roughly four times the size.
+  RELEASE_ABIS: "arm64-v8a armeabi-v7a x86 x86_64"
 
 jobs:
   # ---------------------------------------------------------------------------
-  # 1. Unit tests. These run on a plain JVM and cover the pure logic layers
-  #    (file naming, error classification, retry policy, credential redaction).
+  # 1. Unit tests - plain JVM, covering file naming, error classification,
+  #    retry policy and credential redaction.
   # ---------------------------------------------------------------------------
   test:
     name: Unit tests
@@ -44,8 +43,7 @@ jobs:
           java-version: '21'
 
       # The GitHub-hosted Ubuntu image already contains a complete Android SDK
-      # (build-tools 35.0.0, platform android-35, platform-tools), so it is used directly instead of
-      # depending on a third-party setup action.
+      # (build-tools 35.0.0, platform android-35, platform-tools).
       - name: Set up Android SDK
         run: |
           set -euo pipefail
@@ -60,6 +58,7 @@ jobs:
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
           echo "$CANDIDATE" >> "$GITHUB_PATH"
+          "$CANDIDATE/sdkmanager" --version
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -76,7 +75,7 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
-  # 2. Static analysis. Reported but never blocking.
+  # 2. Static analysis. Strict: a lint finding fails the job.
   # ---------------------------------------------------------------------------
   lint:
     name: Lint
@@ -118,19 +117,16 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
-  # 3. Build ONE universal, signed release APK.
+  # 3. Build four signed release APKs, one per ABI, and validate each of them.
   # ---------------------------------------------------------------------------
   build:
-    name: Build release APK
+    name: Build release APKs
     runs-on: ubuntu-latest
     needs: [ test ]
     outputs:
       version: ${{ steps.version.outputs.name }}
       tag: ${{ steps.version.outputs.tag }}
-      cert_sha256: ${{ steps.cert.outputs.sha256 }}
-      apk_sha256: ${{ steps.cert.outputs.apk_sha256 }}
-      apk_name: ${{ steps.cert.outputs.apk_name }}
-      apk_size: ${{ steps.cert.outputs.apk_size }}
+      cert_sha256: ${{ steps.verify.outputs.cert_sha256 }}
       signed: ${{ steps.signing.outputs.signed }}
     steps:
       - uses: actions/checkout@v4
@@ -174,7 +170,7 @@ jobs:
             sleep 10
           done
 
-      # The release APK is published to users, so it must be signed with the permanent keystore.
+      # The release APKs are published to users, so they must be signed with the permanent keystore.
       # All four values come from repository secrets and are never written into the repository.
       - name: Configure signing
         id: signing
@@ -192,14 +188,14 @@ jobs:
           [ -z "${KEY_PASSWORD:-}" ]       && MISSING="$MISSING KEY_PASSWORD"
           if [ -n "$MISSING" ]; then
             echo "::warning::Missing repository secret(s):$MISSING"
-            echo "::warning::The release APK will be unsigned and will NOT be published."
+            echo "::warning::The release APKs will be unsigned and will NOT be published."
             echo "signed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "$SIGNING_KEY" | base64 -d > "$RUNNER_TEMP/release.jks"
 
           # Validate before spending minutes on the build: a truncated SIGNING_KEY, a wrong password
-          # or a mismatched alias should be reported here rather than surfacing as an unsigned APK.
+          # or a mismatched alias should be reported here rather than surfacing as unsigned APKs.
           if ! keytool -list -keystore "$RUNNER_TEMP/release.jks" \
                  -storepass "$KEY_STORE_PASSWORD" -alias "$ALIAS" > /dev/null 2>&1; then
             echo "::error::The keystore could not be opened."
@@ -240,126 +236,198 @@ jobs:
           echo "tag=v$NAME" >> "$GITHUB_OUTPUT"
           echo "Resolved version: $NAME"
 
-      # -PnoSplits turns off per-ABI APK splits and -PABI_FILTERS lists every ABI, which produces a
-      # single universal APK instead of five.
-      - name: Build universal release APK
+      # ABI splits are configured in app/build.gradle.kts, so this produces one APK per
+      # architecture and no universal APK.
+      - name: Build per-ABI release APKs
         run: |
           ./gradlew :app:assembleGenericRelease \
-            -PnoSplits \
-            -PABI_FILTERS="$RELEASE_ABIS" \
             --stacktrace --no-daemon --no-configuration-cache
 
-      - name: Verify APK and compute fingerprints
-        id: cert
+      - name: Verify APKs and compute fingerprints
+        id: verify
         run: |
           set -euo pipefail
           shopt -s nullglob
+
           APKS=(app/build/outputs/apk/generic/release/*.apk)
-          if [ ${#APKS[@]} -ne 1 ]; then
-            echo "::error::Expected exactly one APK, found ${#APKS[@]}: ${APKS[*]}"
+          if [ ${#APKS[@]} -eq 0 ]; then
+            echo "::error::No release APKs were produced."
             exit 1
           fi
-          APK="${APKS[0]}"
-          echo "APK: $APK"
-          ls -lh "$APK"
 
-          # Fails if the archive is malformed.
-          unzip -tqq "$APK"
+          # No universal APK may ever be published: it would carry every ABI.
+          for apk in "${APKS[@]}"; do
+            case "$(basename "$apk")" in
+              *universal*)
+                echo "::error::A universal APK was produced ($(basename "$apk")); only per-ABI APKs may be released."
+                exit 1
+                ;;
+            esac
+          done
 
-          # apksigner is the canonical verifier: it validates the v1/v2/v3/v3.1 signature schemes
-          # directly, so it does not depend on the presence of META-INF/MANIFEST.MF (a modern,
-          # v2/v3-signed APK legitimately has no such file). Its output also carries the signer
-          # certificate digest, which is what the release notes publish.
+          AAPT2="$(ls "$ANDROID_HOME"/build-tools/*/aapt2 2>/dev/null | head -1 || true)"
           APKSIGNER="$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | head -1 || true)"
-          if [ -z "$APKSIGNER" ]; then
-            echo "::error::apksigner was not found in the Android SDK."
+          if [ -z "$AAPT2" ] || [ -z "$APKSIGNER" ]; then
+            echo "::error::aapt2 or apksigner was not found in the Android SDK."
             exit 1
           fi
           echo "Using $APKSIGNER"
 
-          set +e
-          VERIFY_OUT="$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1)"
-          VERIFY_RC=$?
-          set -e
-          echo "$VERIFY_OUT"
+          # expected ELF e_machine (little-endian bytes) for each ABI
+          machine_of() {
+            case "$1" in
+              arm64-v8a)   echo "b700" ;;
+              armeabi-v7a) echo "2800" ;;
+              x86)         echo "0300" ;;
+              x86_64)      echo "3e00" ;;
+              *)           echo "?" ;;
+            esac
+          }
 
-          if [ "$VERIFY_RC" -ne 0 ]; then
-            if printf '%s' "$VERIFY_OUT" | grep -qE "DOES NOT VERIFY|Missing META-INF/MANIFEST.MF"; then
-              echo "::error::The release APK is not signed, so it cannot be installed or published."
-              echo "::error::That means the signing secrets were not available to this job."
-              echo "::error::Add SIGNING_KEY (base64 of the keystore), KEY_STORE_PASSWORD, ALIAS and KEY_PASSWORD as repository secrets."
-            else
-              echo "::error::apksigner could not verify the APK signature."
-            fi
-            echo "::error::apksigner said: $(printf '%s' "$VERIFY_OUT" | tail -n 1)"
-            exit 1
-          fi
-          echo "APK signature verified."
-
-          # Report every scheme apksigner validated, and require a modern one. v1-only signing is
-          # weak, and an APK with no scheme at all would not have verified in the first place.
-          for scheme in v1 v2 "v3" "v3.1" v4; do
-            state="$(printf '%s' "$VERIFY_OUT" \
-              | sed -n "s/.*Verified using ${scheme} scheme[^:]*: \(true\|false\).*/\1/p" | head -1)"
-            echo "  signature scheme ${scheme}: ${state:-not reported}"
-          done
-          if ! printf '%s' "$VERIFY_OUT" | grep -qE "Verified using v(2|3)(\.1)? scheme[^:]*: true"; then
-            echo "::error::The APK is not signed with a modern scheme (v2/v3); refusing to publish."
-            exit 1
-          fi
-
-          CERT_SHA="$(printf '%s' "$VERIFY_OUT" \
-            | awk -F'SHA-256 digest: ' '/SHA-256 digest:/{gsub(/[ \t\r]/,"",$2); print $2; exit}')"
-
-          # apksigner prints the digest as lowercase hex with no separators; the expected value is
-          # stored in colon-separated form. Normalise both before comparing.
           EXPECTED_FP="$(printf '%s' "$EXPECTED_SIGNING_CERT_SHA256" | tr 'A-F' 'a-f' | tr -d ' \t')"
-          ACTUAL_FP="$(printf '%s' "$CERT_SHA" | tr 'A-F' 'a-f' | sed 's/\(..\)/\1:/g; s/:$//')"
-          echo "signer certificate SHA-256: ${ACTUAL_FP:-<none>}"
-          if [ "$ACTUAL_FP" != "$EXPECTED_FP" ]; then
-            echo "::error::The APK is signed with an unexpected certificate."
-            echo "::error::  expected: $EXPECTED_FP"
-            echo "::error::  actual:   ${ACTUAL_FP:-<none>}"
-            echo "::error::Publishing this build would leave existing installations unable to update."
-            exit 1
-          fi
-          echo "Signer certificate matches the permanent SnapNet key."
-          APK_SHA="$(sha256sum "$APK" | awk '{print $1}')"
-          APK_NAME="$(basename "$APK")"
-          APK_SIZE="$(du -h "$APK" | awk '{print $1}')"
+          mkdir -p release-apk
+          rm -rf /tmp/apkcheck && mkdir -p /tmp/apkcheck
 
-          for kv in "cert=$CERT_SHA" "apk_sha=$APK_SHA" "name=$APK_NAME" "size=$APK_SIZE"; do
-            echo "computed ${kv%%=*}: ${kv#*=}"
+          seen_abis=""
+          for apk in "${APKS[@]}"; do
+            name="$(basename "$apk")"
+            echo
+            echo "================ $name ================"
+            ls -lh "$apk"
+
+            abi="$(printf '%s' "$name" \
+              | sed -nE 's/^SnapNet-[0-9A-Za-z.\-]+-(arm64-v8a|armeabi-v7a|x86_64|x86)-release\.apk$/\1/p')"
+            if [ -z "$abi" ]; then
+              echo "::error::Unexpected APK file name '$name'; expected SnapNet-<version>-<abi>-release.apk"
+              exit 1
+            fi
+            case " $RELEASE_ABIS " in
+              *" $abi "*) ;;
+              *) echo "::error::$name reports ABI '$abi' which is not one of the four published ABIs."; exit 1 ;;
+            esac
+            case " $seen_abis " in
+              *" $abi "*) echo "::error::Two APKs were produced for the same ABI ($abi)."; exit 1 ;;
+            esac
+            seen_abis="$seen_abis $abi"
+
+            # 1. archive integrity
+            unzip -tqq "$apk" || { echo "::error::$name is not a readable zip archive."; exit 1; }
+
+            # 2. manifest / resource table parse
+            echo -n "  badging: "; "$AAPT2" dump badging "$apk" | head -1
+            if ! "$AAPT2" dump badging "$apk" > /dev/null 2>&1; then
+              echo "::error::$name has an unreadable manifest or resource table."
+              exit 1
+            fi
+
+            # 3. signature, using apksigner (independent of META-INF/MANIFEST.MF presence)
+            set +e
+            VERIFY_OUT="$("$APKSIGNER" verify --verbose --print-certs "$apk" 2>&1)"
+            VERIFY_RC=$?
+            set -e
+            echo "$VERIFY_OUT" | sed 's/^/  /'
+            if [ "$VERIFY_RC" -ne 0 ]; then
+              if printf '%s' "$VERIFY_OUT" | grep -qE "DOES NOT VERIFY|Missing META-INF/MANIFEST.MF"; then
+                echo "::error::$name is not signed, so it cannot be installed or published."
+                echo "::error::That means the signing secrets were not available to this job."
+              else
+                echo "::error::apksigner could not verify the signature of $name."
+              fi
+              echo "::error::apksigner said: $(printf '%s' "$VERIFY_OUT" | tail -n 1)"
+              exit 1
+            fi
+
+            # 4. modern signature scheme present
+            for scheme in "v2" "v3" "v3.1"; do
+              state="$(printf '%s' "$VERIFY_OUT" \
+                | sed -n "s/.*Verified using ${scheme} scheme[^:]*: \(true\|false\).*/\1/p" | head -1)"
+              echo "  signature scheme ${scheme}: ${state:-not reported}"
+            done
+            if ! printf '%s' "$VERIFY_OUT" | grep -qE "Verified using v(2|3)(\.1)? scheme[^:]*: true"; then
+              echo "::error::$name is not signed with a modern scheme (v2/v3)."
+              exit 1
+            fi
+
+            # 5. signer certificate must be the permanent SnapNet key
+            CERT_SHA="$(printf '%s' "$VERIFY_OUT" \
+              | awk -F'SHA-256 digest: ' '/SHA-256 digest:/{gsub(/[ \t\r]/,"",$2); print $2; exit}')"
+            ACTUAL_FP="$(printf '%s' "$CERT_SHA" | tr 'A-F' 'a-f' | sed 's/\(..\)/\1:/g; s/:$//')"
+            echo "  signer certificate SHA-256: ${ACTUAL_FP:-<none>}"
+            if [ "$ACTUAL_FP" != "$EXPECTED_FP" ]; then
+              echo "::error::$name is signed with an unexpected certificate."
+              echo "::error::  expected: $EXPECTED_FP"
+              echo "::error::  actual:   ${ACTUAL_FP:-<none>}"
+              echo "::error::Publishing this build would leave existing installations unable to update."
+              exit 1
+            fi
+
+            # 6. the APK must contain exactly one ABI, and it must be the one its name claims
+            ABIS_IN_APK="$(unzip -Z1 "$apk" | grep -oE '^lib/[^/]+/' | sed 's|^lib/||; s|/$||' | sort -u | tr '\n' ' ' | sed 's/ $//')"
+            abi_count="$(printf '%s' "$ABIS_IN_APK" | wc -w)"
+            echo "  ABIs inside: '${ABIS_IN_APK}'"
+            if [ "$abi_count" -ne 1 ]; then
+              echo "::error::$name contains $abi_count ABIs ('$ABIS_IN_APK'); it must contain only '$abi'."
+              exit 1
+            fi
+            if [ "$ABIS_IN_APK" != "$abi" ]; then
+              echo "::error::$name is named '$abi' but contains '$ABIS_IN_APK' libraries."
+              exit 1
+            fi
+
+            # 7. every ELF in lib/ must be ET_DYN (Android rejects ET_EXEC) and match the ABI
+            want_machine="$(machine_of "$abi")"
+            work="/tmp/apkcheck/$abi"
+            mkdir -p "$work"
+            ( cd "$work" && unzip -q -o "$OLDPWD/$apk" 'lib/*' 2>/dev/null || unzip -q -o "$(realpath "$apk" 2>/dev/null || echo "$apk")" 'lib/*' )
+            elf_fail=0
+            while IFS= read -r so; do
+              etype="$(od -An -tu2 -j16 -N2 "$so" | tr -d ' ')"
+              emach="$(od -An -tx1 -j18 -N2 "$so" | tr -d ' ')"
+              case "$etype" in
+                3) ;;                       # ET_DYN - required
+                2) echo "::error::${so##*/} is ET_EXEC; Android refuses to install a package containing a non-PIE library."; elf_fail=1; continue ;;
+                *) continue ;;              # not an ELF (e.g. libpython.zip.so) - copied as data
+              esac
+              if [ "$emach" != "$want_machine" ]; then
+                echo "::error::${so##*/} is built for machine $emach but $abi requires $want_machine."
+                elf_fail=1
+              fi
+            done < <(find "$work/lib" -name '*.so' | sort)
+            if [ "$elf_fail" -ne 0 ]; then
+              exit 1
+            fi
+            echo "  native libraries: all ELF objects are ET_DYN and match $abi"
+
+            cp "$apk" release-apk/
           done
 
-          {
-            echo "sha256=$CERT_SHA"
-            echo "apk_sha256=$APK_SHA"
-            echo "apk_name=$APK_NAME"
-            echo "apk_size=$APK_SIZE"
-          } >> "$GITHUB_OUTPUT"
+          # every requested ABI must have been produced
+          for abi in $RELEASE_ABIS; do
+            case " $seen_abis " in
+              *" $abi "*) ;;
+              *) echo "::error::No APK was produced for $abi."; exit 1 ;;
+            esac
+          done
 
-          {
-            echo "APK: $APK_NAME"
-            echo "APK SHA-256: $APK_SHA"
-            echo "Signer certificate SHA-256: $CERT_SHA"
-          } > "$RUNNER_TEMP/fingerprints.txt"
+          echo
+          echo "Verified ${#APKS[@]} APKs:"
+          ( cd release-apk && sha256sum *.apk | tee SHA256SUMS.txt )
 
-          # The artifact keeps only the APK so that it downloads as a flat, directly installable file.
-          mkdir -p release-apk
-          cp "$APK" release-apk/
+          echo "cert_sha256=$(printf '%s' "$EXPECTED_FP")" >> "$GITHUB_OUTPUT"
 
-      - name: Upload APK artifact
+      - name: Upload release APKs
         uses: actions/upload-artifact@v4
         with:
-          name: snapnet-apk
-          path: release-apk/*.apk
+          name: snapnet-apks
+          path: |
+            release-apk/*.apk
+            release-apk/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
 
   # ---------------------------------------------------------------------------
-  # 4. Publish the APK to GitHub Releases (raw .apk, not a zip).
-  #    Existing releases are untouched, so every published version stays available.
+  # 4. Publish the four APKs to GitHub Releases (raw .apk files, not a zip).
+  #    Previous releases are left untouched.
   # ---------------------------------------------------------------------------
   release:
     name: Publish release
@@ -371,53 +439,73 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Ensure the APK is signed before publishing
+      - name: Ensure the APKs are signed before publishing
         env:
           SIGNED: ${{ needs.build.outputs.signed }}
         run: |
           set -euo pipefail
           if [ "$SIGNED" != "true" ]; then
-            echo "::error::Refusing to publish an unsigned APK."
+            echo "::error::Refusing to publish unsigned APKs."
             echo "::error::Add the SIGNING_KEY, KEY_STORE_PASSWORD, ALIAS and KEY_PASSWORD repository secrets so SnapNet releases are signed with the permanent keystore and can be installed as an update."
             exit 1
           fi
-          echo "APK is signed; proceeding to publish."
+          echo "APKs are signed; proceeding to publish."
 
-      - name: Download APK
+      - name: Download APKs
         uses: actions/download-artifact@v4
         with:
-          name: snapnet-apk
+          name: snapnet-apks
           path: apk
 
       - name: Compose release notes
         env:
           VERSION: ${{ needs.build.outputs.version }}
           CERT_SHA256: ${{ needs.build.outputs.cert_sha256 }}
-          APK_SHA256: ${{ needs.build.outputs.apk_sha256 }}
-          APK_NAME: ${{ needs.build.outputs.apk_name }}
-          APK_SIZE: ${{ needs.build.outputs.apk_size }}
         run: |
           set -euo pipefail
-          cat > notes.md <<EOF
-          نسخة SnapNet $VERSION — تنزيل الفيديو والصوت من Android.
+          shopt -s nullglob
+          APKS=(apk/*.apk)
+          if [ ${#APKS[@]} -ne 4 ]; then
+            echo "::error::Expected 4 APKs to publish, found ${#APKS[@]}."
+            exit 1
+          fi
 
-          - اسم الحزمة (Application ID): \`com.snapnet\`
-          - اسم الملف: \`$APK_NAME\`
-          - الحجم: $APK_SIZE
-          - التوقيع الرقمي: Keystore دائم (SHA-256: $CERT_SHA256)
-          - بصمة ملف الـAPK (SHA-256): \`$APK_SHA256\`
-
-          ### التثبيت
-          نزّل ملف \`.apk\` المرفق مباشرة وثبّته (فعّل "تثبيت من مصادر غير معروفة" إن طُلب منك).
-          التوقيع ثابت لكل الإصدارات، لذلك يمكن تثبيت الإصدار الجديد فوق القديم بدون حذف التطبيق.
-
-          ### التحقق من السلامة
-          \`\`\`
-          sha256sum $APK_NAME
-          # يجب أن يساوي:
-          # $APK_SHA256
-          \`\`\`
-          EOF
+          # 64-bit first, then 32-bit, so the recommended download is listed at the top.
+          ORDER="arm64-v8a armeabi-v7a x86_64 x86"
+          {
+            echo "نسخة SnapNet $VERSION - أربعة ملفات APK، ملف واحد لكل معمارية."
+            echo
+            echo "اختر الملف المناسب لجهازك. معظم الأجهزة الحديثة تحتاج **arm64-v8a**."
+            echo "للتحقق من معمارية جهازك: الإعدادات ← حول الهاتف ← المعالج، أو استخدم تطبيقًا مثل AIDA64."
+            echo
+            for abi in $ORDER; do
+              for apk in "${APKS[@]}"; do
+                case "$(basename "$apk")" in
+                  *"-$abi-release.apk")
+                    size="$(du -h "$apk" | awk '{print $1}')"
+                    hash="$(sha256sum "$apk" | awk '{print $1}')"
+                    echo "### $abi"
+                    echo "- الملف: \`$(basename "$apk")\`"
+                    echo "- الحجم: $size"
+                    echo "- SHA-256: \`$hash\`"
+                    echo
+                    ;;
+                esac
+              done
+            done
+            echo "اسم الحزمة (Application ID): \`com.snapnet\`"
+            echo
+            echo "التوقيع الرقمي: Keystore دائم (SHA-256: $CERT_SHA256)"
+            echo
+            echo "### التثبيت"
+            echo "نزّل ملف الـAPK المناسب لمعمارية جهازك وثبّته مباشرة."
+            echo "التوقيع ثابت لكل الإصدارات، لذلك يمكن تثبيت الإصدار الجديد فوق القديم دون حذف التطبيق."
+            echo
+            echo "### التحقق من السلامة"
+            echo '```'
+            echo "sha256sum <الملف الذي نزّلته>"
+            echo '```'
+          } > notes.md
           cat notes.md
 
       - name: Publish
