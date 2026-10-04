@@ -60,7 +60,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Run unit tests
-        run: ./gradlew testGenericDebugUnitTest --stacktrace --no-daemon
+        run: ./gradlew testGenericDebugUnitTest --stacktrace --no-daemon --no-configuration-cache
 
       - name: Upload test report
         if: always()
@@ -102,7 +102,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Run lint
-        run: ./gradlew :app:lintGenericRelease --stacktrace --no-daemon
+        run: ./gradlew :app:lintGenericRelease --stacktrace --no-daemon --no-configuration-cache
 
       - name: Upload lint report
         if: always()
@@ -180,8 +180,14 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -z "${SIGNING_KEY:-}" ]; then
-            echo "::warning::Signing secrets are not configured; the APK will be unsigned and will NOT be published."
+          MISSING=""
+          [ -z "${SIGNING_KEY:-}" ]        && MISSING="$MISSING SIGNING_KEY"
+          [ -z "${KEY_STORE_PASSWORD:-}" ] && MISSING="$MISSING KEY_STORE_PASSWORD"
+          [ -z "${ALIAS:-}" ]              && MISSING="$MISSING ALIAS"
+          [ -z "${KEY_PASSWORD:-}" ]       && MISSING="$MISSING KEY_PASSWORD"
+          if [ -n "$MISSING" ]; then
+            echo "::warning::Missing repository secret(s):$MISSING"
+            echo "::warning::The release APK will be unsigned and will NOT be published."
             echo "signed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -222,7 +228,7 @@ jobs:
           ./gradlew :app:assembleGenericRelease \
             -PnoSplits \
             -PABI_FILTERS="$RELEASE_ABIS" \
-            --stacktrace --no-daemon
+            --stacktrace --no-daemon --no-configuration-cache
 
       - name: Verify APK and compute fingerprints
         id: cert
@@ -241,14 +247,38 @@ jobs:
           # Fails if the archive is malformed.
           unzip -tqq "$APK"
 
-          # The APK must actually be signed, otherwise it cannot be installed.
+          # apksigner is the canonical verifier: it validates the v1/v2/v3/v3.1 signature schemes
+          # directly, so it does not depend on the presence of META-INF/MANIFEST.MF (a modern,
+          # v2/v3-signed APK legitimately has no such file). Its output also carries the signer
+          # certificate digest, which is what the release notes publish.
           APKSIGNER="$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | head -1 || true)"
-          if [ -n "$APKSIGNER" ]; then
-            "$APKSIGNER" verify --print-certs "$APK" > /dev/null
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::apksigner was not found in the Android SDK."
+            exit 1
           fi
+          echo "Using $APKSIGNER"
 
-          CERT_SHA="$(keytool -printcert -jarfile "$APK" \
-            | awk -F'SHA256: ' '/SHA256:/{gsub(/[ \t\r]/,"",$2); print $2; exit}')"
+          set +e
+          VERIFY_OUT="$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1)"
+          VERIFY_RC=$?
+          set -e
+          echo "$VERIFY_OUT"
+
+          if [ "$VERIFY_RC" -ne 0 ]; then
+            if printf '%s' "$VERIFY_OUT" | grep -qE "DOES NOT VERIFY|Missing META-INF/MANIFEST.MF"; then
+              echo "::error::The release APK is not signed, so it cannot be installed or published."
+              echo "::error::That means the signing secrets were not available to this job."
+              echo "::error::Add SIGNING_KEY (base64 of the keystore), KEY_STORE_PASSWORD, ALIAS and KEY_PASSWORD as repository secrets."
+            else
+              echo "::error::apksigner could not verify the APK signature."
+            fi
+            echo "::error::apksigner said: $(printf '%s' "$VERIFY_OUT" | tail -n 1)"
+            exit 1
+          fi
+          echo "APK signature verified."
+
+          CERT_SHA="$(printf '%s' "$VERIFY_OUT" \
+            | awk -F'SHA-256 digest: ' '/SHA-256 digest:/{gsub(/[ \t\r]/,"",$2); print $2; exit}')"
           APK_SHA="$(sha256sum "$APK" | awk '{print $1}')"
           APK_NAME="$(basename "$APK")"
           APK_SIZE="$(du -h "$APK" | awk '{print $1}')"
