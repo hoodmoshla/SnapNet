@@ -76,7 +76,6 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -102,12 +101,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # Advisory by design. `assembleGenericRelease` already runs lintVital, which fails the release
-      # build on fatal-severity findings, so genuinely blocking problems are still caught. The full
-      # lint pass is noisy on a project this size and is published as a report for review instead of
-      # failing the pipeline.
       - name: Run lint
-        continue-on-error: true
         run: ./gradlew :app:lintGenericRelease --stacktrace --no-daemon
 
       - name: Upload lint report
