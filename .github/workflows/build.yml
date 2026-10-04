@@ -20,6 +20,11 @@ env:
   # A single universal APK (every ABI in one file) is what gets published, so the artifact a user
   # downloads from the Releases page is directly installable.
   RELEASE_ABIS: "arm64-v8a;armeabi-v7a;x86;x86_64"
+  # The permanent SnapNet signing certificate. Every published APK must be signed with exactly this
+  # key: Android refuses to install an update signed by a different one, so a rotated key would
+  # strand every existing installation. CI fails if a build is signed with anything else.
+  # Regenerate with tools/generate-keystore.sh only if this is a deliberate, communicated break.
+  EXPECTED_SIGNING_CERT_SHA256: "31:60:36:6E:4E:39:07:8C:C0:D5:88:99:E1:41:68:07:79:B1:23:1E:48:09:01:E7:0C:55:A6:F2:06:C0:5E:57"
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -192,6 +197,20 @@ jobs:
             exit 0
           fi
           echo "$SIGNING_KEY" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+          # Validate before spending minutes on the build: a truncated SIGNING_KEY, a wrong password
+          # or a mismatched alias should be reported here rather than surfacing as an unsigned APK.
+          if ! keytool -list -keystore "$RUNNER_TEMP/release.jks" \
+                 -storepass "$KEY_STORE_PASSWORD" -alias "$ALIAS" > /dev/null 2>&1; then
+            echo "::error::The keystore could not be opened."
+            echo "::error::Check that SIGNING_KEY is the base64 of the .jks file, that KEY_STORE_PASSWORD is its password, and that ALIAS exists in it."
+            exit 1
+          fi
+          KEYSTORE_CERT="$(keytool -list -v -keystore "$RUNNER_TEMP/release.jks" \
+                 -storepass "$KEY_STORE_PASSWORD" -alias "$ALIAS" 2>/dev/null \
+                 | awk '/SHA256:/{sub(/^[ \t]*SHA256: /,""); gsub(/[ \t\r]/,""); print; exit}')"
+          echo "Keystore signer certificate SHA-256: $KEYSTORE_CERT"
+
           {
             echo "storeFile=$RUNNER_TEMP/release.jks"
             echo "storePassword=$KEY_STORE_PASSWORD"
@@ -277,8 +296,34 @@ jobs:
           fi
           echo "APK signature verified."
 
+          # Report every scheme apksigner validated, and require a modern one. v1-only signing is
+          # weak, and an APK with no scheme at all would not have verified in the first place.
+          for scheme in v1 v2 "v3" "v3.1" v4; do
+            state="$(printf '%s' "$VERIFY_OUT" \
+              | sed -n "s/.*Verified using ${scheme} scheme[^:]*: \(true\|false\).*/\1/p" | head -1)"
+            echo "  signature scheme ${scheme}: ${state:-not reported}"
+          done
+          if ! printf '%s' "$VERIFY_OUT" | grep -qE "Verified using v(2|3)(\.1)? scheme[^:]*: true"; then
+            echo "::error::The APK is not signed with a modern scheme (v2/v3); refusing to publish."
+            exit 1
+          fi
+
           CERT_SHA="$(printf '%s' "$VERIFY_OUT" \
             | awk -F'SHA-256 digest: ' '/SHA-256 digest:/{gsub(/[ \t\r]/,"",$2); print $2; exit}')"
+
+          # apksigner prints the digest as lowercase hex with no separators; the expected value is
+          # stored in colon-separated form. Normalise both before comparing.
+          EXPECTED_FP="$(printf '%s' "$EXPECTED_SIGNING_CERT_SHA256" | tr 'A-F' 'a-f' | tr -d ' \t')"
+          ACTUAL_FP="$(printf '%s' "$CERT_SHA" | tr 'A-F' 'a-f' | sed 's/\(..\)/\1:/g; s/:$//')"
+          echo "signer certificate SHA-256: ${ACTUAL_FP:-<none>}"
+          if [ "$ACTUAL_FP" != "$EXPECTED_FP" ]; then
+            echo "::error::The APK is signed with an unexpected certificate."
+            echo "::error::  expected: $EXPECTED_FP"
+            echo "::error::  actual:   ${ACTUAL_FP:-<none>}"
+            echo "::error::Publishing this build would leave existing installations unable to update."
+            exit 1
+          fi
+          echo "Signer certificate matches the permanent SnapNet key."
           APK_SHA="$(sha256sum "$APK" | awk '{print $1}')"
           APK_NAME="$(basename "$APK")"
           APK_SIZE="$(du -h "$APK" | awk '{print $1}')"
