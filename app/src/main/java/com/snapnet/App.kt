@@ -121,12 +121,20 @@ class App : Application() {
                 // Always publish a concrete engine version. The library only stores one after a
                 // runtime update, which left a freshly installed app reporting an empty version and
                 // made it impossible to tell which yt-dlp was actually in use.
-                if (YT_DLP_VERSION.getString().isEmpty()) {
-                    YtDlpVersion.resolveBundledVersion(this@App)?.let { bundled ->
-                        Log.i(TAG, "bundled yt-dlp version: $bundled")
-                        PreferenceUtil.encodeString(YT_DLP_VERSION, bundled)
-                    } ?: Log.w(TAG, "could not determine the bundled yt-dlp version")
-                }
+                // The value reported to the user must be the engine that will actually run, not
+                // whatever the library happened to remember. Refresh it on every launch so an
+                // out-of-band update, or a failed one, is reflected immediately.
+                YtDlpVersion.resolveEffectiveVersion(this@App)?.let { version ->
+                    val installed = YtDlpVersion.resolveInstalledVersion(this@App) != null
+                    Log.i(TAG, "yt-dlp engine: $version (installed=${installed})")
+                    PreferenceUtil.encodeString(YT_DLP_VERSION, version)
+                    if (!YtDlpVersion.supportsJsRuntimes(version)) {
+                        Log.w(
+                            TAG,
+                            "yt-dlp $version predates --js-runtimes; it must be updated before any request is made",
+                        )
+                    }
+                } ?: Log.w(TAG, "could not determine the yt-dlp engine version")
                 DownloadUtil.getCookiesContentFromDatabase().getOrNull()?.let {
                     FileUtil.writeContentToFile(it, getCookiesFile())
                 }
@@ -308,7 +316,12 @@ class App : Application() {
                 .append("App version: $versionName ($versionCode)\n")
                 .append("Device information: Android $release (API ${Build.VERSION.SDK_INT})\n")
                 .append("Supported ABIs: ${Build.SUPPORTED_ABIS.contentToString()}\n")
-                .append("Yt-dlp version: ${YT_DLP_VERSION.getString()}\n")
+                .append("Yt-dlp version: ")
+                .append(
+                    YtDlpVersion.resolveEffectiveVersion(context)
+                        ?: YT_DLP_VERSION.getString().ifEmpty { "unknown" }.let { it }
+                )
+                .append("\n")
                 .toString()
         }
 
