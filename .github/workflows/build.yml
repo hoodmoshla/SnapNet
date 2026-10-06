@@ -508,6 +508,30 @@ jobs:
           } > notes.md
           cat notes.md
 
+      # One release per version, tied to the commit it was built from. A release for this tag is
+      # only touched again when it belongs to this exact commit, so re-running a workflow refreshes
+      # its own release while a later commit can never silently overwrite an older version's release:
+      # that build must raise the version instead.
+      - name: Ensure this version has not been released from another commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $TAG does not exist yet; it will be created for $SHA."
+            exit 0
+          fi
+          RELEASED_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha 2>/dev/null || echo unknown)"
+          if [ "$RELEASED_SHA" = "$SHA" ]; then
+            echo "Release $TAG belongs to this same commit; its assets will be refreshed."
+            exit 0
+          fi
+          echo "::error::Release $TAG already exists and belongs to commit ${RELEASED_SHA:0:7}, not to $SHA."
+          echo "::error::Raise versionPatch in buildSrc/src/main/kotlin/Version.kt (and versionCode in app/build.gradle.kts) so this build publishes a new version instead of rewriting an existing release."
+          exit 1
+
       # action-gh-release only ever *adds* assets. An APK that a later revision stops producing -
       # for example the universal APK published before SnapNet moved to one APK per ABI - would
       # otherwise stay on the release forever and keep offering users a stale download. Clearing the
