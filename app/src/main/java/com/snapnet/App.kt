@@ -43,6 +43,7 @@ import com.snapnet.util.SDCARD_URI
 import com.snapnet.util.UpdateUtil
 import com.snapnet.util.VIDEO_DIRECTORY
 import com.snapnet.util.YT_DLP_VERSION
+import com.snapnet.util.YtDlpEngine
 import com.snapnet.util.YtDlpVersion
 import com.tencent.mmkv.MMKV
 import com.yausername.aria2c.Aria2c
@@ -283,33 +284,46 @@ class App : Application() {
             engineReady.await().getOrThrow()
         }
 
+        /**
+         * Blocks every download until the engine has been *proved* to run.
+         *
+         * Readiness used to be inferred from `yt_dlp/version.py` and a four-byte ZIP signature.
+         * Neither is a real test, and a version that could not be parsed was treated as "too old" and
+         * then failed a hard `check()`, which crashed the app with
+         * `yt-dlp engine does not support --js-runtimes after update`.
+         *
+         * The engine is now asked to run. `youtubedl-android` appends `--js-runtimes quickjs:<path>`
+         * and `--ffmpeg-location` to the command for *every* request, so a successful `--version`
+         * also proves those options are accepted.
+         *
+         * Recovery order: run it, update it, fall back to the engine bundled in the APK, and only
+         * then give up — with a failure the UI can show, never an unhandled exception mid-startup.
+         */
         private suspend fun ensureYtDlpReady(app: Context) {
-            fun logEngine() {
-                val installed = YtDlpVersion.resolveInstalledVersion(app)
-                val bundled = YtDlpVersion.resolveBundledVersion(app)
-                val effective = installed ?: bundled
-                Log.i(
-                    TAG,
-                    "yt-dlp engine: version=${effective ?: "unknown"}, " +
-                        "path=${YtDlpVersion.effectiveBinaryPath(app)}, " +
-                        "installed=${installed != null}, bundled=${bundled ?: "unknown"}, " +
-                        "quickjs=${File(app.applicationInfo.nativeLibraryDir, "libqjs.so").absolutePath}",
-                )
-                effective?.let { PreferenceUtil.encodeString(YT_DLP_VERSION, it) }
+            fun record(version: String, how: String) {
+                Log.i(TAG, "yt-dlp engine ready ($how): $version")
+                PreferenceUtil.encodeString(YT_DLP_VERSION, version)
             }
 
-            logEngine()
-            if (!YtDlpVersion.effectiveEngineSupportsJsRuntimes(app)) {
-                check(PreferenceUtil.isNetworkAvailableForDownload()) {
-                    "yt-dlp engine is too old for --js-runtimes and no network is available"
-                }
-                Log.w(TAG, "stale yt-dlp detected; forcing an update before any download")
-                UpdateUtil.updateYtDlp()
-                logEngine()
-            }
-            check(YtDlpVersion.effectiveEngineSupportsJsRuntimes(app)) {
-                "yt-dlp engine does not support --js-runtimes after update"
-            }
+            YtDlpEngine.probeVersion().onSuccess { record(it, "running"); return }
+
+            Log.w(TAG, "the engine could not be run; attempting an update")
+            runCatching { UpdateUtil.updateYtDlp() }
+                .onFailure { Log.w(TAG, "yt-dlp update failed", it) }
+            YtDlpEngine.probeVersion().onSuccess { record(it, "after update"); return }
+
+            // An update that reports ALREADY_UP_TO_DATE while the engine still cannot run means the
+            // installed binary is unusable, so fall back to the copy bundled in the APK: in
+            // youtubedl-android 0.18.1 that build understands --js-runtimes and ships QuickJS.
+            Log.w(TAG, "the engine still cannot run; restoring the copy bundled in the APK")
+            YtDlpEngine.restoreBundledEngine(app)
+                .onFailure { Log.e(TAG, "could not restore the bundled engine", it) }
+            YtDlpEngine.probeVersion().onSuccess { record(it, "bundled"); return }
+
+            throw IllegalStateException(
+                "yt-dlp could not be started, so downloads are disabled. " +
+                    "Tried the installed engine, an update, and the engine bundled in the app."
+            )
         }
 
         val privateDownloadDir: String

@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.yausername.youtubedl_android.YoutubeDL
 import java.io.File
+import java.util.zip.ZipFile
 
 /**
  * Crash-safe wrapper around youtubedl-android's in-place yt-dlp updater.
@@ -45,6 +46,9 @@ object YtDlpUpdater {
 
     private const val BINARY_NAME = "yt-dlp"
 
+    /** The module that makes a zipapp a yt-dlp build. */
+    private const val VERSION_ENTRY = "yt_dlp/version.py"
+
     private fun backupDir(context: Context) = File(context.filesDir, "ytdlp-backup")
 
     private fun backupFile(context: Context) = File(backupDir(context), BINARY_NAME)
@@ -71,24 +75,22 @@ object YtDlpUpdater {
      * release asset is a zipapp). This is cheap, offline, and detects truncated downloads and
      * incompatible/wrong assets.
      */
+    /**
+     * @return true when [file] is a readable yt-dlp zipapp.
+     *
+     * This deliberately does not test the first four bytes for `PK\x03\x04`. A zipapp may carry an
+     * executable or shebang prefix, which puts the archive somewhere other than offset 0, and
+     * rejecting such a file would throw away a working engine. Opening the file as a ZIP and looking
+     * for the module that makes it yt-dlp is both tolerant of a prefix and a genuine test.
+     */
     private fun verifyInstalledBinary(file: File?): Boolean {
         if (!isUsable(file)) return false
         val binary = file ?: return false
         return runCatching {
-                binary.inputStream().use { stream ->
-                    val magic = ByteArray(4)
-                    if (stream.read(magic) != 4) return false
-                    // Local file header signature of a ZIP archive: "PK\u0003\u0004"
-                    magic[0] == 0x50.toByte() &&
-                        magic[1] == 0x4B.toByte() &&
-                        magic[2] == 0x03.toByte() &&
-                        magic[3] == 0x04.toByte()
-                }
+                ZipFile(binary).use { zip -> zip.getEntry(VERSION_ENTRY) != null }
             }
-            .getOrElse {
-                Log.w(TAG, "could not read installed yt-dlp to verify it", it)
-                false
-            }
+            .onFailure { Log.w(TAG, "installed yt-dlp is not a readable zipapp", it) }
+            .getOrDefault(false)
     }
 
     private fun backup(context: Context, binary: File): Boolean =

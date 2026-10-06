@@ -608,6 +608,46 @@ private fun FormatPageImpl(
                 }
             }
 
+            if (videoAudioFormats.isNotEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(top = 16.dp).padding(horizontal = 12.dp),
+                    ) {
+                        FormatSubtitle(
+                            text = stringResource(R.string.video),
+                            modifier = Modifier.weight(1f).padding(vertical = 4.dp),
+                        )
+                        ClickableTextAction(
+                            visible = videoAudioItemLimit < videoAudioFormats.size,
+                            text = stringResource(R.string.show_all_items, videoAudioFormats.size),
+                        ) {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            videoAudioItemLimit = Int.MAX_VALUE
+                        }
+                    }
+                }
+                itemsIndexed(
+                    videoAudioFormats.subList(0, min(videoAudioItemLimit, videoAudioFormats.size))
+                ) { index, formatInfo ->
+                    FormatItem(
+                        formatInfo = formatInfo,
+                        duration = duration,
+                        selected = selectedVideoAudioFormat == index,
+                        onLongClick = { formatInfo.url.share() },
+                    ) {
+                        selectedVideoAudioFormat =
+                            if (selectedVideoAudioFormat == index) NOT_SELECTED
+                            else {
+                                selectedAudioOnlyFormats.clear()
+                                selectedVideoOnlyFormat = NOT_SELECTED
+                                isSuggestedFormatSelected = false
+                                index
+                            }
+                    }
+                }
+            }
+
             if (audioOnlyFormats.isNotEmpty())
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Row(
@@ -700,46 +740,6 @@ private fun FormatPageImpl(
                     }
                 }
             }
-            if (videoAudioFormats.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(top = 16.dp).padding(horizontal = 12.dp),
-                    ) {
-                        FormatSubtitle(
-                            text = stringResource(R.string.video),
-                            modifier = Modifier.weight(1f).padding(vertical = 4.dp),
-                        )
-                        ClickableTextAction(
-                            visible = videoAudioItemLimit < videoAudioFormats.size,
-                            text = stringResource(R.string.show_all_items, videoAudioFormats.size),
-                        ) {
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                            videoAudioItemLimit = Int.MAX_VALUE
-                        }
-                    }
-                }
-                itemsIndexed(
-                    videoAudioFormats.subList(0, min(videoAudioItemLimit, videoAudioFormats.size))
-                ) { index, formatInfo ->
-                    FormatItem(
-                        formatInfo = formatInfo,
-                        duration = duration,
-                        selected = selectedVideoAudioFormat == index,
-                        onLongClick = { formatInfo.url.share() },
-                    ) {
-                        selectedVideoAudioFormat =
-                            if (selectedVideoAudioFormat == index) NOT_SELECTED
-                            else {
-                                selectedAudioOnlyFormats.clear()
-                                selectedVideoOnlyFormat = NOT_SELECTED
-                                isSuggestedFormatSelected = false
-                                index
-                            }
-                    }
-                }
-            }
-
             if (!audioOnly && audioOnlyFormats.isNotEmpty() && videoOnlyFormats.isNotEmpty())
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     PreferenceInfo(

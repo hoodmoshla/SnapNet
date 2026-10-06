@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -523,18 +524,31 @@ fun ActionButton(
     downloadState: Task.DownloadState,
     onActionPost: (UiAction) -> Unit,
 ) =
+    // A task that is no longer running gets both its existing action and a direct "remove from the
+    // list" button, so the three-dot sheet is not the only way to clear an entry. The buttons reuse
+    // the same UiAction.Cancel / UiAction.Delete the sheet posts, so there is one implementation of
+    // either operation.
     when (downloadState) {
         is Error -> {
-            RestartButton(modifier = modifier) { onActionPost(UiAction.Resume) }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                RestartButton(modifier = modifier) { onActionPost(UiAction.Resume) }
+                DeleteTaskButton(modifier = modifier) { onActionPost(UiAction.Delete) }
+            }
         }
         is Canceled -> {
-            ResumeButton(modifier = modifier, downloadState.progress) {
-                onActionPost(UiAction.Resume)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                ResumeButton(modifier = modifier, downloadState.progress) {
+                    onActionPost(UiAction.Resume)
+                }
+                DeleteTaskButton(modifier = modifier) { onActionPost(UiAction.Delete) }
             }
         }
         is Completed -> {
-            PlayVideoButton(modifier = modifier) {
-                onActionPost(UiAction.OpenFile(downloadState.filePath))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                PlayVideoButton(modifier = modifier) {
+                    onActionPost(UiAction.OpenFile(downloadState.filePath))
+                }
+                DeleteTaskButton(modifier = modifier) { onActionPost(UiAction.Delete) }
             }
         }
         is FetchingInfo,
@@ -548,6 +562,25 @@ fun ActionButton(
             }
         }
     }
+
+/**
+ * Removes the task from the download list. Reuses [UiAction.Delete]; it does not touch the file on
+ * disk, matching the behaviour of the action sheet entry.
+ */
+@Composable
+private fun DeleteTaskButton(modifier: Modifier = Modifier, onClick: () -> Unit) {
+    FilledIconButton(
+        onClick = onClick,
+        modifier = modifier.size(IconButtonSize),
+        content = {
+            Icon(
+                imageVector = Icons.Outlined.DeleteOutline,
+                contentDescription = stringResource(R.string.delete),
+                modifier = Modifier.size(24.dp),
+            )
+        },
+    )
+}
 
 @Composable
 private fun ResumeButton(
