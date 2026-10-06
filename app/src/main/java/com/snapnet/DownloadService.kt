@@ -42,13 +42,16 @@ class DownloadService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        promoteToForeground()
+        if (!promoteToForeground()) {
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
         // The task queue lives in the application scope, so there is nothing to restart here.
         return START_NOT_STICKY
     }
 
-    private fun promoteToForeground() {
-        if (isForeground) return
+    private fun promoteToForeground(): Boolean {
+        if (isForeground) return true
         runCatching {
                 val pendingIntent =
                     Intent(this, MainActivity::class.java).let {
@@ -67,8 +70,14 @@ class DownloadService : Service() {
                 isForeground = true
                 Log.d(TAG, "promoted to foreground")
             }
-            .onFailure { Log.w(TAG, "could not promote the download service to foreground", it) }
+            .onFailure {
+                Log.e(TAG, "could not promote the download service to foreground; stopping", it)
+                stopSelf()
+            }
+        return isForeground
     }
+
+    fun isForegroundReady(): Boolean = isForeground
 
     override fun onUnbind(intent: Intent?): Boolean {
         // Deliberately do *not* stop here: the caller (App.stopService) stops the service once the

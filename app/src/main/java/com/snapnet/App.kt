@@ -49,11 +49,11 @@ import com.yausername.aria2c.Aria2c
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import java.io.File
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.core.context.startKoin
@@ -87,6 +87,7 @@ class App : Application() {
                 else getPackageInfo(packageName, 0)
             }
         applicationScope = CoroutineScope(SupervisorJob())
+        engineReady = CompletableDeferred()
 
         // Retry a refused foreground-service start as soon as any activity becomes visible, which is
         // the only moment Android allows the service to be started.
@@ -113,7 +114,7 @@ class App : Application() {
         connectivityManager = getSystemService()!!
 
         applicationScope.launch((Dispatchers.IO)) {
-            try {
+            runCatching {
                 YoutubeDL.init(this@App)
                 FFmpeg.init(this@App)
                 Aria2c.init(this@App)
@@ -124,24 +125,16 @@ class App : Application() {
                 // The value reported to the user must be the engine that will actually run, not
                 // whatever the library happened to remember. Refresh it on every launch so an
                 // out-of-band update, or a failed one, is reflected immediately.
-                YtDlpVersion.resolveEffectiveVersion(this@App)?.let { version ->
-                    val installed = YtDlpVersion.resolveInstalledVersion(this@App) != null
-                    Log.i(TAG, "yt-dlp engine: $version (installed=${installed})")
-                    PreferenceUtil.encodeString(YT_DLP_VERSION, version)
-                    if (!YtDlpVersion.supportsJsRuntimes(version)) {
-                        Log.w(
-                            TAG,
-                            "yt-dlp $version predates --js-runtimes; it must be updated before any request is made",
-                        )
-                    }
-                } ?: Log.w(TAG, "could not determine the yt-dlp engine version")
+                ensureYtDlpReady(this@App)
                 DownloadUtil.getCookiesContentFromDatabase().getOrNull()?.let {
                     FileUtil.writeContentToFile(it, getCookiesFile())
                 }
                 UpdateUtil.deleteOutdatedApk()
-            } catch (th: Throwable) {
-                withContext(Dispatchers.Main) { startCrashReportActivity(th) }
-            }
+            }.onSuccess { engineReady.complete(Result.success(Unit)) }
+                .onFailure { th
+                    Log.e(TAG, "yt-dlp engine initialization failed; downloads are blocked", th)
+                    engineReady.complete(Result.failure(th))
+                }
         }
 
         videoDownloadDir = VIDEO_DIRECTORY.getString(getExternalDownloadDirectory().absolutePath)
@@ -174,6 +167,7 @@ class App : Application() {
         lateinit var applicationScope: CoroutineScope
         lateinit var connectivityManager: ConnectivityManager
         lateinit var packageInfo: PackageInfo
+        private lateinit var engineReady: CompletableDeferred<Result<Unit>>
 
         var isServiceRunning = false
 
@@ -181,6 +175,7 @@ class App : Application() {
 
         /** Binder handle to the running service, used to tear it down cleanly. */
         private var boundService: DownloadService? = null
+        @Volatile private var foregroundReady: CompletableDeferred<Unit>? = null
 
         /**
          * True while a download is in flight and the service therefore ought to be running.
@@ -200,12 +195,23 @@ class App : Application() {
                 override fun onServiceConnected(className: ComponentName, service: IBinder) {
                     val binder = service as DownloadService.DownloadServiceBinder
                     boundService = binder.getService()
-                    isServiceRunning = true
+                    if (boundService?.isForegroundReady() == true) {
+                        isServiceRunning = true
+                        foregroundReady?.complete(Unit)
+                    } else {
+                        isServiceRunning = false
+                        foregroundReady?.completeExceptionally(
+                            IllegalStateException("DownloadService did not enter foreground mode")
+                        )
+                    }
                 }
 
                 override fun onServiceDisconnected(arg0: ComponentName) {
                     boundService = null
                     isServiceRunning = false
+                    foregroundReady?.completeExceptionally(
+                        IllegalStateException("DownloadService disconnected")
+                    )
                 }
             }
 
@@ -222,8 +228,10 @@ class App : Application() {
         fun startService() {
             wantsService = true
             if (isServiceRunning) return
+            if (foregroundReady?.isActive == true) return
             val app = context.applicationContext
             val intent = Intent(app, DownloadService::class.java)
+            foregroundReady = CompletableDeferred()
             try {
                 ContextCompat.startForegroundService(app, intent)
                 app.bindService(intent, connection, Context.BIND_AUTO_CREATE)
@@ -234,12 +242,20 @@ class App : Application() {
                 // instead of swallowing it; the activity lifecycle callback below retries as soon as
                 // the app is visible again.
                 foregroundServiceError = "${e.javaClass.simpleName}: ${e.message ?: "no message"}"
+                foregroundReady?.completeExceptionally(e)
+                foregroundReady = null
                 Log.e(
                     TAG,
                     "download foreground service could not be started; the running download will not survive being backgrounded until the app is shown again",
                     e,
                 )
             }
+        }
+
+        /** Starts the service and waits until Android has accepted its foreground notification. */
+        suspend fun ensureForegroundServiceReady() {
+            startService()
+            foregroundReady?.await() ?: error("DownloadService was not started")
         }
 
         fun stopService() {
@@ -252,12 +268,47 @@ class App : Application() {
                 Log.w(TAG, "could not unbind the download service", e)
             }
             isServiceRunning = false
+            foregroundReady = null
             boundService?.stopForegroundCompat()
             boundService = null
             try {
                 app.stopService(Intent(app, DownloadService::class.java))
             } catch (e: Exception) {
                 Log.w(TAG, "could not stop the download service", e)
+            }
+        }
+
+        /** Blocks all yt-dlp work until the exact runtime engine is initialized and compatible. */
+        suspend fun awaitYtDlpReady() {
+            engineReady.await().getOrThrow()
+        }
+
+        private suspend fun ensureYtDlpReady(app: Context) {
+            fun logEngine() {
+                val installed = YtDlpVersion.resolveInstalledVersion(app)
+                val bundled = YtDlpVersion.resolveBundledVersion(app)
+                val effective = installed ?: bundled
+                Log.i(
+                    TAG,
+                    "yt-dlp engine: version=${effective ?: "unknown"}, " +
+                        "path=${YtDlpVersion.effectiveBinaryPath(app)}, " +
+                        "installed=${installed != null}, bundled=${bundled ?: "unknown"}, " +
+                        "quickjs=${File(app.applicationInfo.nativeLibraryDir, "libqjs.so").absolutePath}",
+                )
+                effective?.let { PreferenceUtil.encodeString(YT_DLP_VERSION, it) }
+            }
+
+            logEngine()
+            if (!YtDlpVersion.effectiveEngineSupportsJsRuntimes(app)) {
+                check(PreferenceUtil.isNetworkAvailableForDownload()) {
+                    "yt-dlp engine is too old for --js-runtimes and no network is available"
+                }
+                Log.w(TAG, "stale yt-dlp detected; forcing an update before any download")
+                UpdateUtil.updateYtDlp()
+                logEngine()
+            }
+            check(YtDlpVersion.effectiveEngineSupportsJsRuntimes(app)) {
+                "yt-dlp engine does not support --js-runtimes after update"
             }
         }
 

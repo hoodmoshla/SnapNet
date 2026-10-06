@@ -272,6 +272,8 @@ class DownloaderV2Impl(private val appContext: Context) : DownloaderV2, KoinComp
         val playlistIndex = if (taskInfo is TypeInfo.Playlist) taskInfo.index else null
         scope
             .launch(Dispatchers.Default) {
+                App.awaitYtDlpReady()
+                App.ensureForegroundServiceReady()
                 DownloadUtil.fetchVideoInfoFromUrl(
                         url = url,
                         playlistIndex = playlistIndex,
@@ -307,6 +309,8 @@ class DownloaderV2Impl(private val appContext: Context) : DownloaderV2, KoinComp
         }
         scope
             .launch(Dispatchers.Default) {
+                App.awaitYtDlpReady()
+                App.ensureForegroundServiceReady()
                 DownloadUtil.downloadVideo(
                         videoInfo = info,
                         taskId = id,
@@ -448,6 +452,8 @@ class DownloaderV2Impl(private val appContext: Context) : DownloaderV2, KoinComp
         val template = type.template
         scope
             .launch {
+                App.awaitYtDlpReady()
+                App.ensureForegroundServiceReady()
                 DownloadUtil.executeCustomCommandTask(url, id, template, preferences) {
                         progressPercentage,
                         _,

@@ -85,6 +85,9 @@ object YtDlpVersion {
     fun resolveEffectiveVersion(context: Context): String? =
         resolveInstalledVersion(context) ?: resolveBundledVersion(context)
 
+    /** Exact file that youtubedl-android 0.18.1 passes to Python. */
+    fun effectiveBinaryPath(context: Context): String = installedBinary(context).absolutePath
+
     /** yt-dlp versions are date based (`YYYY.MM.DD`), so a lexicographic compare is correct. */
     fun compare(a: String?, b: String?): Int {
         if (a == null) return -1

@@ -296,6 +296,8 @@ object Downloader {
     ) {
         currentJob =
             applicationScope.launch(Dispatchers.IO) {
+                App.awaitYtDlpReady()
+                App.ensureForegroundServiceReady()
                 updateState(State.FetchingInfo)
                 DownloadUtil.fetchVideoInfoFromUrl(url = url, preferences = preferences)
                     .onFailure {
@@ -347,6 +349,8 @@ object Downloader {
     ) {
         currentJob =
             applicationScope.launch(Dispatchers.IO) {
+                App.awaitYtDlpReady()
+                App.ensureForegroundServiceReady()
                 downloadResultTemp = downloadVideo(videoInfo = info, preferences = preferences)
             }
     }
