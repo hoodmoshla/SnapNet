@@ -508,6 +508,28 @@ jobs:
           } > notes.md
           cat notes.md
 
+      # action-gh-release only ever *adds* assets. An APK that a later revision stops producing -
+      # for example the universal APK published before SnapNet moved to one APK per ABI - would
+      # otherwise stay on the release forever and keep offering users a stale download. Clearing the
+      # release first makes its contents exactly the set that this build produced.
+      - name: Remove stale release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $TAG does not exist yet; nothing to clean."
+            exit 0
+          fi
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            -q '.assets[].name' | while IFS= read -r name; do
+              [ -n "$name" ] || continue
+              echo "removing existing asset: $name"
+              gh release delete-asset "$TAG" "$name" --repo "$GITHUB_REPOSITORY" --yes
+            done
+          echo "Release $TAG is now empty; the current build's APKs will be attached next."
+
       - name: Publish
         uses: softprops/action-gh-release@v2
         with:
