@@ -131,7 +131,7 @@ class App : Application() {
                 }
                 UpdateUtil.deleteOutdatedApk()
             }.onSuccess { engineReady.complete(Result.success(Unit)) }
-                .onFailure { th
+                .onFailure { th ->
                     Log.e(TAG, "yt-dlp engine initialization failed; downloads are blocked", th)
                     engineReady.complete(Result.failure(th))
                 }
