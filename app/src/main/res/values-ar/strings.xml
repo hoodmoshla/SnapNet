@@ -221,6 +221,7 @@
     <string name="how_does_it_work">كيف يعمل؟</string>
     <string name="telegram_channel">قناة Telegram</string>
     <string name="cookies_usage_msg">يتطلب التنزيل من بعض المواقع معلومات مصادقة الحساب. انقر فوق \"إنشاء ملفات تعريف ارتباط جديدة\" ، وأدخل عنوان URL لموقع الويب ، ثم قم بتسجيل الدخول باستخدام حسابك في صفحة المتصفح ، وسيقوم التطبيق بإنشائه لك.</string>
+    <string name="youtube_cookies_required">يتطلب YouTube تسجيل الدخول عبر ملفات تعريف الارتباط على هذه الشبكة. افتح الإعدادات &gt; الشبكة &gt; ملفات تعريف الارتباط، واضغط «إنشاء ملفات تعريف ارتباط جديدة»، وأدخل https://www.youtube.com وسجّل الدخول في المتصفح المضمّن، ثم فعّل «استخدام ملفات تعريف الارتباط» وأعد المحاولة.</string>
     <string name="matrix_space">مساحة Matrix</string>
     <string name="cookies">كوكيز</string>
     <string name="abs_hint">تقدم معظم منصات الفيديو، الصوت والفيديو بشكل منفصل ، يمكنك تحديد ودمج صيغة صوت فقط بصيغة فيديو في فيديو واحد.</string>

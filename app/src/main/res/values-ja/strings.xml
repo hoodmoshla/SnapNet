@@ -294,7 +294,7 @@
     <string name="clear_all_cookies">すべてのクッキーを消去</string>
     <string name="sponsor">スポンサー</string>
     <string name="sponsor_desc">GitHubでスポンサーになって本アプリを支援する</string>
-    <string name="sponsor_msg">Sealはいつでも無料で、誰でも使えるオープンソースです。もし気に入っていただけたなら、GitHubで私のスポンサーになることを検討してください！</string>
+    <string name="sponsor_msg">SnapNetはいつでも無料で、誰でも使えるオープンソースです。もし気に入っていただけたなら、GitHubで私のスポンサーになることを検討してください！</string>
     <string name="temporary_directory_desc">内部ディレクトリーに一時ファイルを保存する</string>
     <string name="ytdlp_update_action">yt-dlp を更新</string>
     <string name="commands">コマンド</string>

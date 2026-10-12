@@ -1,28 +1,23 @@
 <div align="center">
 
-<img width="" src="fastlane/metadata/android/en-US/images/icon.png"  width=160 height=160  align="center">
+<img width="" src="../fastlane/metadata/android/en-US/images/icon.png"  width=160 height=160  align="center">
 
-# Seal
-
-
+# SnapNet
 
 ### 一个简单的 Android 视频/音频下载器，使用 Jetpack Compose 进行开发
 
 <p align="center">
-<a href="https://github.com/JunkFood02/Seal/blob/main/README.md">English</a>
+<a href="https://github.com/hoodmoshla/SnapNet/blob/main/README.md">English</a>
 &nbsp;&nbsp;|&nbsp;&nbsp;
 简体中文
 </p>
 
-[![F-Droid](https://img.shields.io/f-droid/v/com.junkfood.seal?color=b4eb12&label=F-Droid&logo=fdroid&logoColor=1f78d2)](https://f-droid.org/en/packages/com.junkfood.seal)
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/JunkFood02/Seal?color=black&label=Stable&logo=github)](https://github.com/JunkFood02/Seal/releases/latest/)
-[![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/JunkFood02/Seal?include_prereleases&label=Preview&logo=Github)](https://github.com/JunkFood02/Seal/releases/)
-[![Keep a Changelog](https://img.shields.io/badge/Changelog-lightgray?style=flat&color=gray&logo=keep-a-changelog)](https://github.com/JunkFood02/Seal/blob/main/CHANGELOG.md)
-[![GitHub all releases](https://img.shields.io/github/downloads/JunkFood02/Seal/total?label=Downloads&logo=github)](https://github.com/JunkFood02/Seal/releases/)
-[![GitHub Repo stars](https://img.shields.io/github/stars/JunkFood02/Seal?color=informational&label=Stars)](https://github.com/JunkFood02/Seal/stargazers)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/hoodmoshla/SnapNet?color=black&label=Stable&logo=github)](https://github.com/hoodmoshla/SnapNet/releases/latest/)
+[![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/hoodmoshla/SnapNet?include_prereleases&label=Preview&logo=Github)](https://github.com/hoodmoshla/SnapNet/releases/)
+[![Keep a Changelog](https://img.shields.io/badge/Changelog-lightgray?style=flat&color=gray&logo=keep-a-changelog)](https://github.com/hoodmoshla/SnapNet/blob/main/CHANGELOG.md)
+[![GitHub all releases](https://img.shields.io/github/downloads/hoodmoshla/SnapNet/total?label=Downloads&logo=github)](https://github.com/hoodmoshla/SnapNet/releases/)
+[![GitHub Repo stars](https://img.shields.io/github/stars/hoodmoshla/SnapNet?color=informational&label=Stars)](https://github.com/hoodmoshla/SnapNet/stargazers)
 [![Supported Sites](https://img.shields.io/badge/Supported-Sites-9cf.svg?style=flat)](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md)
-[![Telegram Channel](https://img.shields.io/badge/Telegram-Seal-blue?style=flat&logo=telegram)](https://t.me/seal_app)
-[![Matrix Space](https://img.shields.io/badge/Matrix-Seal-Black?style=flat&color=black&logo=matrix)](https://matrix.to/#/#seal-space:matrix.org)
 
 </div>
 ## 屏幕截图
@@ -38,7 +33,6 @@
 <img src="/fastlane/metadata/android/en-US/images/phoneScreenshots/8.jpg" width="30%" />
 <img src="/fastlane/metadata/android/en-US/images/phoneScreenshots/9.jpg" width="30%" />
 </div>
-
 
 ## 功能特色
 
@@ -59,28 +53,22 @@
 - 使用简单、用户友好
 
 - 遵循 [Material Design 3](https://m3.material.io/) 设计规范，实现了 [动态色彩](https://m3.material.io/foundations/customization) 主题的应用界面
-  
+
 - MAD：完全使用 Kotlin 构造界面与编写逻辑，单 Activity + Compose Navigation 应用结构
 
 ## 下载
 
 [<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
-alt="Get it on F-Droid"
-height="80">](https://f-droid.org/packages/com.junkfood.seal/)
 
-你也可以从 [releases](https://github.com/JunkFood02/Seal/releases) 获取最新的 apk
+你也可以从 [releases](https://github.com/hoodmoshla/SnapNet/releases) 获取最新的 apk
 
 ## 贡献
 
 欢迎贡献！
 
-你可以在 [Hosted Weblate](https://hosted.weblate.org/projects/seal/)  参与 Seal 的翻译
+对于错误报告、功能请求或其他改进的想法，请先在 Issue 和 Discussion 中进行搜索（包括已关闭的 Issue）。如果没有出现重复，欢迎 [发起讨论](https://github.com/hoodmoshla/SnapNet/discussions) 或 [提交问题](https://github.com/hoodmoshla/SnapNet/issues/new)。
 
-[![Translate status](https://hosted.weblate.org/widgets/seal/-/multi-auto.svg)](https://hosted.weblate.org/engage/seal/)
-
-对于错误报告、功能请求或其他改进的想法，请先在 Issue 和 Discussion 中进行搜索（包括已关闭的 Issue）。如果没有出现重复，欢迎 [发起讨论](https://github.com/JunkFood02/Seal/discussions) 或 [提交问题](https://github.com/JunkFood02/Seal/issues/new)。
-
-Seal 被设计为 yt-dlp 的一个简单的 GUI 封装，所以我们不会接受 yt-dlp 不支持的功能请求。
+SnapNet 被设计为 yt-dlp 的一个简单的 GUI 封装，所以我们不会接受 yt-dlp 不支持的功能请求。
 
 ## 致谢
 
@@ -98,4 +86,4 @@ Seal 被设计为 yt-dlp 的一个简单的 GUI 封装，所以我们不会接�
 
 ## 许可证
 
-[GNU GPL v3.0](https://github.com/JunkFood02/Seal/blob/main/LICENSE)
+[GNU GPL v3.0](https://github.com/hoodmoshla/SnapNet/blob/main/LICENSE)

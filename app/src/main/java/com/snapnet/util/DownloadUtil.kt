@@ -802,6 +802,18 @@ object DownloadUtil {
                         .execute(request = this, processId = taskId, callback = progressCallback)
                 }
                 .onFailure { th ->
+                    val message = th.message.orEmpty()
+                    if (
+                        videoInfo.extractorKey.contains("youtube", ignoreCase = true) &&
+                            message.contains("Sign in to confirm", ignoreCase = true) &&
+                            message.contains("not a bot", ignoreCase = true)
+                    ) {
+                        return Result.failure(
+                            YoutubeDLException(
+                                context.getString(R.string.youtube_cookies_required)
+                            )
+                        )
+                    }
                     return if (
                         sponsorBlock &&
                             th.message?.contains("Unable to communicate with SponsorBlock API") ==

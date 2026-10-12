@@ -331,7 +331,7 @@
     <string name="telegram_channel">Kanál na Telegramu</string>
     <string name="feature_unavailable">Funkce není dostupná</string>
     <string name="temporary_directory_desc">Uložit dočasné soubory v interním adresáři</string>
-    <string name="auto_update_disabled_msg">Automatické aktualizace nejsou dostupné pro sestavení ze služby %1$s. Pokud nemáte na zařízení nainstalovanou službu %1$s nebo pokud byste chtěli vidět nadcházející nové funkce v Sealu, zvažte prosím %2$s.</string>
+    <string name="auto_update_disabled_msg">Automatické aktualizace nejsou dostupné pro sestavení ze služby %1$s. Pokud nemáte na zařízení nainstalovanou službu %1$s nebo pokud byste chtěli vidět nadcházející nové funkce v SnapNetu, zvažte prosím %2$s.</string>
     <string name="cookies_usage_msg">Stahování z některých stránek vyžaduje autentifikační informace z účtu. Klepněte na „Vygenerovat nové cookies“, zadejte adresu stránky a poté se přihlaste s vaším účtem v okně prohlížeče, aplikace se postará o vygenerování za vás.</string>
     <string name="proxy_desc">Použít proxy pro připojení k internetu</string>
     <string name="generate_new_cookies">Vygenerovat nové cookies</string>

@@ -525,9 +525,8 @@ fun ActionButton(
     onActionPost: (UiAction) -> Unit,
 ) =
     // A task that is no longer running gets both its existing action and a direct "remove from the
-    // list" button, so the three-dot sheet is not the only way to clear an entry. The buttons reuse
-    // the same UiAction.Cancel / UiAction.Delete the sheet posts, so there is one implementation of
-    // either operation.
+    // list" button, so the three-dot sheet is not the only way to clear an entry. Active downloads
+    // pause here; explicit cancellation remains available from the action sheet.
     when (downloadState) {
         is Error -> {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -557,8 +556,12 @@ fun ActionButton(
             ProgressButton(modifier = modifier, progress = -1f) { onActionPost(UiAction.Cancel) }
         }
         is Running -> {
-            ProgressButton(modifier = modifier, progress = downloadState.progress) {
-                onActionPost(UiAction.Cancel)
+            ProgressButton(
+                modifier = modifier,
+                progress = downloadState.progress,
+                onClickLabel = R.string.pause,
+            ) {
+                onActionPost(UiAction.Pause)
             }
         }
     }
@@ -657,7 +660,12 @@ private fun PlayVideoButton(modifier: Modifier = Modifier, onClick: () -> Unit) 
 }
 
 @Composable
-private fun ProgressButton(modifier: Modifier = Modifier, progress: Float, onClick: () -> Unit) {
+private fun ProgressButton(
+    modifier: Modifier = Modifier,
+    progress: Float,
+    onClickLabel: Int = R.string.cancel,
+    onClick: () -> Unit,
+) {
     val animatedProgress by
         animateFloatAsState(
             progress,
@@ -672,7 +680,7 @@ private fun ProgressButton(modifier: Modifier = Modifier, progress: Float, onCli
                 .size(IconButtonSize)
                 .clip(CircleShape)
                 .drawBehind { drawCircle(background) }
-                .clickable(onClickLabel = stringResource(R.string.cancel), onClick = onClick)
+                .clickable(onClickLabel = stringResource(onClickLabel), onClick = onClick)
     ) {
         if (progress < 0) {
             CircularProgressIndicator(
@@ -691,7 +699,7 @@ private fun ProgressButton(modifier: Modifier = Modifier, progress: Float, onCli
         }
         Icon(
             imageVector = Icons.Rounded.Pause,
-            contentDescription = null,
+            contentDescription = stringResource(R.string.pause),
             modifier = Modifier.align(Alignment.Center).size(IconSize),
             tint = ActionButtonContentColor,
         )

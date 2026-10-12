@@ -339,7 +339,7 @@
     <string name="export_to_file">Fayla ixrac et</string>
     <string name="custom_command_usage_msg">yt-dlp videoları yükləmək üçün güclü əmr xətti alətidir. SnapNet intuitiv GUI, ictimai əmrlər üçün qabaqcıl tənzimləmələr və digər əlavə funksiyalar təmin etməklə yt-dlp istifadə etməsini asanlaşdırır.
 \n
-\nSeal sizə yt-dlp-nin qabaqcıl istifadəsi üçün terminalda olduğu kimi birbaşa fərdi əmr şablonların yaratmağa, saxlamağa və icra etməyə icazə verir.
+\nSnapNet sizə yt-dlp-nin qabaqcıl istifadəsi üçün terminalda olduğu kimi birbaşa fərdi əmr şablonların yaratmağa, saxlamağa və icra etməyə icazə verir.
 \n
 \nFərdi əmrlərdən istifadə edərkən, GUI seçimlərinin və xüsusiyyətlərinin əksəriyyəti qeyri-aktiv ediləcək.</string>
     <string name="clear_download_archive">Yükləmə arxivi təmizlənsin?</string>

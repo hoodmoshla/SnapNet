@@ -185,6 +185,8 @@ sealed interface UiAction {
 
     data object Cancel : UiAction
 
+    data object Pause : UiAction
+
     data object Delete : UiAction
 
     data object Resume : UiAction
@@ -218,6 +220,7 @@ fun DownloadPageV2(
         view.slightHapticFeedback()
         when (action) {
             UiAction.Cancel -> downloader.cancel(task)
+            UiAction.Pause -> downloader.pause(task)
             UiAction.Delete -> downloader.remove(task)
             UiAction.Resume -> downloader.restart(task)
             is UiAction.CopyErrorReport -> {

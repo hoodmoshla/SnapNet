@@ -71,7 +71,7 @@ object UpdateUtil {
             val result = YtDlpUpdater.safeUpdate(context, channel)
 
             if (result == YtDlpUpdater.Result.UPDATED) {
-                YoutubeDL.getInstance().version(context)?.let {
+                YtDlpVersion.resolveEffectiveVersion(context)?.let {
                     PreferenceUtil.encodeString(YT_DLP_VERSION, it)
                 }
             }

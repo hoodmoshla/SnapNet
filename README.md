@@ -61,8 +61,8 @@ instead of surfacing raw engine text, and only genuinely transient kinds are ret
 ```bash
 git clone https://github.com/hoodmoshla/SnapNet.git
 cd SnapNet
-./gradlew :app:assembleGenericDebug     # debug APKs (per ABI + universal)
-./gradlew :app:assembleGenericRelease   # release APKs
+./gradlew :app:assembleGenericDebug     # one debug APK per ABI
+./gradlew :app:assembleGenericRelease   # one release APK per ABI; no universal APK
 ```
 
 Release signing is driven by an optional `keystore.properties` at the repository root:
@@ -114,7 +114,9 @@ a session) needs cookies.
 SnapNet lets you sign in to a site inside a built-in WebView, then converts the app's own cookie jar
 into a Netscape `cookies.txt` on the device. Cookies are handed only to the local yt-dlp process and
 are sent only to the site you signed in to. They are never uploaded anywhere, never written to logs,
-and they are excluded from backups.
+and they are excluded from Android cloud backups and device-to-device transfers. The Room database is
+excluded because it stores cookie profiles; the app's explicit export formats include only download
+history, command templates, and shortcuts, never cookie profiles.
 
 You are never asked to type a username or password into SnapNet itself.
 
@@ -141,6 +143,7 @@ on-device testing of the app itself; see *Limitations* below.
 
 - **No DRM support**, by design.
 - **Login-gated and region-locked content** needs cookies you supply, and may still be unavailable.
+- **YouTube bot checks:** some networks require a signed-in session even for public videos. Open *Settings → Network → Cookies*, tap *Generate new cookies*, enter `https://www.youtube.com`, sign in in the built-in browser, enable *Use Cookies*, and retry. Some restrictions may still remain.
 - **YouTube changes constantly.** If a download breaks, update the engine from
   *Settings → Advanced → yt-dlp version*.
 - Some sites use TLS fingerprinting that yt-dlp can only bypass with `curl_cffi`, which is not
@@ -181,10 +184,8 @@ FFmpeg, and keeping the download alive in the background. The following are **kn
 here rather than left as silent TODOs in the code:
 
 - **Favourites** are not implemented yet.
-- **Pause/resume** is not implemented. A running task can be cancelled, and a failed task retried,
-  but an in-flight download cannot be paused and continued.
-- **Pause/resume** stops a running task and keeps its partial file so it can be continued; what is
-  missing is a per-task speed/ETA/size read-out in the queue screen.
+- **Queue metrics** — per-task speed, ETA, and size — are not shown yet. Pause/resume is supported;
+  pausing keeps the partial file so yt-dlp can continue when the task is resumed.
 - **The settings surface** still exposes options inherited from the upstream project; some are not
   yet verified against the new engine layer.
 - **Focus areas for the next iteration:** a dedicated download-manager screen with per-task speed,
@@ -192,9 +193,9 @@ here rather than left as silent TODOs in the code:
 
 ## Credits
 
-SnapNet is a fork of [Seal](https://github.com/JunkFood02/Seal) by
-[JunkFood02](https://github.com/JunkFood02), which is itself built on
-[yt-dlp](https://github.com/yt-dlp/yt-dlp) and
+SnapNet originated as a fork of [Seal](https://github.com/JunkFood02/Seal) by
+[JunkFood02](https://github.com/JunkFood02) and is maintained here as an independent app. It builds
+on [yt-dlp](https://github.com/yt-dlp/yt-dlp) and
 [youtubedl-android](https://github.com/yausername/youtubedl-android). Thanks to those projects and to
 the translators who made the localisations possible.
 

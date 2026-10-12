@@ -52,6 +52,9 @@ logged in.
   reports.
 - Session cookies are sensitive. If you export a cookie file or share a debug log, treat the result
   as a credential and delete it when you are done.
+- Android cloud backups and device-to-device transfers explicitly exclude the Room database because
+  it contains cookie profiles. The app's supported manual exports contain only download history,
+  command templates, and shortcuts; they do not export cookie profiles.
 
 ## Downloaded components and Android execution constraints
 
