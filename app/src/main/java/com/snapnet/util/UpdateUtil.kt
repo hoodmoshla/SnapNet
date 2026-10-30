@@ -11,6 +11,7 @@ import com.snapnet.App.Companion.context
 import com.snapnet.R
 import com.snapnet.util.FileUtil.getFileProvider
 import com.snapnet.util.PreferenceUtil.getInt
+import com.snapnet.util.PreferenceUtil.getString
 import com.snapnet.util.PreferenceUtil.updateLong
 import com.snapnet.util.PreferenceUtil.updateString
 import com.yausername.youtubedl_android.YoutubeDL
@@ -40,6 +41,12 @@ object UpdateUtil {
     private const val X64 = "x86_64"
     private const val TAG = "UpdateUtil"
 
+    data class ManualUpdateOutcome(
+        val result: YtDlpUpdater.Result,
+        val effectiveVersion: String,
+        val diagnostic: String,
+    )
+
     private val client = OkHttpClient()
     private val requestForLatestRelease =
         Request.Builder()
@@ -58,8 +65,8 @@ object UpdateUtil {
      * Updates yt-dlp using [YtDlpUpdater], which backs up the working engine before the in-place
      * update and restores it if the new build turns out to be unusable.
      *
-     * The timestamp is only advanced on a successful or already-current outcome: if the engine had
-     * to be rolled back we want the next launch to retry rather than wait a whole interval.
+     * The attempt timestamp is stored before the request. The retry-interval timestamp advances
+     * only on a successful or already-current outcome, so a rollback can be retried next launch.
      */
     suspend fun updateYtDlp(): YtDlpUpdater.Result =
         withContext(Dispatchers.IO) {
@@ -98,6 +105,46 @@ object UpdateUtil {
 
             result
         }
+
+    /** Records a safe update status without changing the timestamp of the last network attempt. */
+    fun recordYtDlpUpdateStatus(status: String, diagnostic: String) {
+        YT_DLP_UPDATE_STATUS.updateString(status)
+        YT_DLP_UPDATE_DIAGNOSTIC.updateString(diagnostic)
+    }
+
+    /** Runs a user-confirmed update and probes the engine that is actually executable afterward. */
+    suspend fun updateYtDlpFromSettings(): ManualUpdateOutcome =
+        withContext(Dispatchers.IO) {
+            val result = updateYtDlp()
+            val effectiveVersion =
+                YtDlpEngine.probeVersionBlocking().getOrNull()
+                    ?: YtDlpVersion.resolveEffectiveVersion(context)
+                    ?: YT_DLP_VERSION.getString().ifBlank {
+                        context.getString(R.string.yt_dlp_version_unknown)
+                    }
+            if (effectiveVersion != context.getString(R.string.yt_dlp_version_unknown)) {
+                PreferenceUtil.encodeString(YT_DLP_VERSION, effectiveVersion)
+            }
+            ManualUpdateOutcome(
+                result = result,
+                effectiveVersion = effectiveVersion,
+                diagnostic = YT_DLP_UPDATE_DIAGNOSTIC.getString(),
+            )
+        }
+
+    fun manualUpdateMessage(context: Context, outcome: ManualUpdateOutcome): String {
+        val diagnostic = outcome.diagnostic.ifBlank { "update_failed" }
+        return when (outcome.result) {
+            YtDlpUpdater.Result.UPDATED ->
+                context.getString(R.string.yt_dlp_updated, outcome.effectiveVersion)
+            YtDlpUpdater.Result.ALREADY_UP_TO_DATE ->
+                "${context.getString(R.string.yt_dlp_up_to_date)} (${outcome.effectiveVersion})"
+            YtDlpUpdater.Result.FAILED_ROLLED_BACK ->
+                context.getString(R.string.yt_dlp_update_failed_rolled_back, diagnostic)
+            YtDlpUpdater.Result.FAILED ->
+                context.getString(R.string.yt_dlp_update_failed_with_reason, diagnostic)
+        }
+    }
 
     private fun getLatestRelease(): Release? =
         client.newCall(requestForReleases).execute().body.use {

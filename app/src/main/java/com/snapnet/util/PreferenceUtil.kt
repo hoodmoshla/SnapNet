@@ -245,6 +245,27 @@ private val LongPreferenceDefaults = mapOf(YT_DLP_UPDATE_INTERVAL to DEFAULT_INT
 
 fun String.getStringDefault() = StringPreferenceDefaults.getOrElse(this) { "" }
 
+internal enum class YtDlpUpdateNetworkState {
+    NO_INTERNET,
+    UNVALIDATED,
+    METERED_CONFIRMATION_REQUIRED,
+    AVAILABLE,
+}
+
+internal fun classifyYtDlpUpdateNetworkState(
+    hasActiveNetwork: Boolean,
+    hasInternet: Boolean,
+    isValidated: Boolean,
+    isMetered: Boolean,
+    meteredAllowed: Boolean,
+): YtDlpUpdateNetworkState =
+    when {
+        !hasActiveNetwork || !hasInternet -> YtDlpUpdateNetworkState.NO_INTERNET
+        isMetered && !meteredAllowed -> YtDlpUpdateNetworkState.METERED_CONFIRMATION_REQUIRED
+        !isValidated -> YtDlpUpdateNetworkState.UNVALIDATED
+        else -> YtDlpUpdateNetworkState.AVAILABLE
+    }
+
 object PreferenceUtil {
     private val kv: MMKV = MMKV.defaultMMKV()
     private val json = Json {
@@ -308,21 +329,27 @@ object PreferenceUtil {
     fun isNetworkAvailableForDownload() =
         CELLULAR_DOWNLOAD.getBoolean() || !App.connectivityManager.isActiveNetworkMetered
 
-    /** Requires validated internet and honors the user's setting for metered connections. */
-    fun isNetworkAvailableForYtDlpUpdate(): Boolean {
+    /** Classifies the current connection for both conservative auto-updates and explicit requests. */
+    internal fun getYtDlpUpdateNetworkState(): YtDlpUpdateNetworkState {
         val manager = App.connectivityManager
-        val network = manager.activeNetwork ?: return false
-        val capabilities = manager.getNetworkCapabilities(network) ?: return false
-        if (
-            !capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
-                !capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-        ) {
-            return false
-        }
-        val isMetered =
-            !capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
-        return CELLULAR_DOWNLOAD.getBoolean() || !isMetered
+        val network = manager.activeNetwork ?: return YtDlpUpdateNetworkState.NO_INTERNET
+        val capabilities = manager.getNetworkCapabilities(network)
+            ?: return YtDlpUpdateNetworkState.NO_INTERNET
+        return classifyYtDlpUpdateNetworkState(
+            hasActiveNetwork = true,
+            hasInternet =
+                capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET),
+            isValidated =
+                capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+            isMetered =
+                !capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED),
+            meteredAllowed = CELLULAR_DOWNLOAD.getBoolean(),
+        )
     }
+
+    /** Automatic updates proceed only on validated internet allowed by the user's data setting. */
+    fun isNetworkAvailableForYtDlpUpdate(): Boolean =
+        getYtDlpUpdateNetworkState() == YtDlpUpdateNetworkState.AVAILABLE
 
     fun isAutoUpdateEnabled(): Boolean {
         return when {

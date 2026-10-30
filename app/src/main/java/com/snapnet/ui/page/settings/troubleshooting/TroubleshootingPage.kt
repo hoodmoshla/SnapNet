@@ -27,7 +27,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.snapnet.App
 import com.snapnet.R
 import com.snapnet.ui.common.Route
 import com.snapnet.ui.common.booleanState
@@ -35,20 +34,19 @@ import com.snapnet.ui.component.PreferenceInfo
 import com.snapnet.ui.component.PreferenceItem
 import com.snapnet.ui.component.PreferenceSubtitle
 import com.snapnet.ui.component.PreferenceSwitch
+import com.snapnet.ui.component.YtDlpUpdateNetworkDialog
 import com.snapnet.ui.page.settings.BasePreferencePage
 import com.snapnet.ui.page.settings.general.YtdlpUpdateChannelDialog
+import com.snapnet.util.PreferenceUtil
 import com.snapnet.util.PreferenceUtil.getString
 import com.snapnet.util.PreferenceUtil.updateBoolean
 import com.snapnet.util.RESTRICT_FILENAMES
 import com.snapnet.util.UpdateUtil
 import com.snapnet.util.YT_DLP_VERSION
-import com.snapnet.util.YtDlpUpdater
-import com.snapnet.util.YtDlpVersion
+import com.snapnet.util.YtDlpUpdateNetworkState
 import com.snapnet.util.makeToast
 import com.yausername.youtubedl_android.YoutubeDL
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 fun TroubleShootingPage(
@@ -95,16 +93,111 @@ fun TroubleShootingPage(
             item {
                 var isUpdating by remember { mutableStateOf(false) }
                 var showYtdlpDialog by remember { mutableStateOf(false) }
-
                 var ytdlpVersion by remember {
                     mutableStateOf(
-                        YoutubeDL.getInstance().version(context.applicationContext)
-                            ?: context.getString(R.string.ytdlp_update)
+                        YT_DLP_VERSION.getString().ifBlank {
+                            context.getString(R.string.yt_dlp_version_unknown)
+                        }
                     )
                 }
+                var lastReportedLatestVersion by remember {
+                    mutableStateOf(
+                        YoutubeDL.getInstance().version(context.applicationContext).orEmpty()
+                    )
+                }
+                var pendingNetworkConfirmation by
+                    remember { mutableStateOf<YtDlpUpdateNetworkState?>(null) }
+                val versionDescription =
+                    if (
+                        lastReportedLatestVersion.isNotBlank() &&
+                            lastReportedLatestVersion != ytdlpVersion
+                    ) {
+                        context.getString(
+                            R.string.yt_dlp_versions_summary,
+                            ytdlpVersion,
+                            lastReportedLatestVersion,
+                        )
+                    } else {
+                        context.getString(R.string.yt_dlp_current_engine, ytdlpVersion)
+                    }
+
+                fun startYtdlpUpdate() {
+                    isUpdating = true
+                    scope.launch {
+                        try {
+                            val outcome = UpdateUtil.updateYtDlpFromSettings()
+                            ytdlpVersion = outcome.effectiveVersion
+                            lastReportedLatestVersion =
+                                YoutubeDL.getInstance()
+                                    .version(context.applicationContext)
+                                    .orEmpty()
+                            context.makeToast(UpdateUtil.manualUpdateMessage(context, outcome))
+                        } catch (exception: kotlinx.coroutines.CancellationException) {
+                            throw exception
+                        } catch (exception: Exception) {
+                            UpdateUtil.recordYtDlpUpdateStatus(
+                                "FAILED",
+                                "manual_update_exception",
+                            )
+                            context.makeToast(
+                                context.getString(
+                                    R.string.yt_dlp_update_failed_with_reason,
+                                    "manual_update_exception",
+                                )
+                            )
+                        } finally {
+                            isUpdating = false
+                        }
+                    }
+                }
+
+                fun requestYtdlpUpdate(confirmed: Boolean = false) {
+                    if (isUpdating) return
+                    val networkState = PreferenceUtil.getYtDlpUpdateNetworkState()
+                    when (networkState) {
+                        YtDlpUpdateNetworkState.NO_INTERNET -> {
+                            UpdateUtil.recordYtDlpUpdateStatus(
+                                "MANUAL_NO_NETWORK",
+                                "no_active_internet_connection",
+                            )
+                            context.makeToast(context.getString(R.string.yt_dlp_no_network))
+                        }
+                        YtDlpUpdateNetworkState.UNVALIDATED,
+                        YtDlpUpdateNetworkState.METERED_CONFIRMATION_REQUIRED -> {
+                            if (!confirmed) {
+                                pendingNetworkConfirmation = networkState
+                                UpdateUtil.recordYtDlpUpdateStatus(
+                                    "MANUAL_CONFIRMATION_REQUIRED",
+                                    if (networkState == YtDlpUpdateNetworkState.UNVALIDATED) {
+                                        "manual_unvalidated_network_confirmation_required"
+                                    } else {
+                                        "manual_metered_network_confirmation_required"
+                                    },
+                                )
+                                return
+                            }
+                            startYtdlpUpdate()
+                        }
+                        YtDlpUpdateNetworkState.AVAILABLE -> startYtdlpUpdate()
+                    }
+                }
+
+                fun cancelNetworkConfirmation(state: YtDlpUpdateNetworkState) {
+                    pendingNetworkConfirmation = null
+                    UpdateUtil.recordYtDlpUpdateStatus(
+                        "MANUAL_CANCELLED",
+                        if (state == YtDlpUpdateNetworkState.UNVALIDATED) {
+                            "user_cancelled_unvalidated_network"
+                        } else {
+                            "user_cancelled_metered_network"
+                        },
+                    )
+                }
+
                 PreferenceItem(
                     title = stringResource(id = R.string.ytdlp_update_action),
-                    description = ytdlpVersion,
+                    description = versionDescription,
+                    enabled = !isUpdating,
                     leadingIcon = {
                         if (isUpdating) {
                             CircularProgressIndicator(
@@ -123,36 +216,7 @@ fun TroubleShootingPage(
                         }
                     },
                     onClick = {
-                        scope.launch {
-                            isUpdating = true
-                            try {
-                                val result = UpdateUtil.updateYtDlp()
-                                val installedVersion =
-                                    withContext(Dispatchers.IO) {
-                                        YtDlpVersion.resolveEffectiveVersion(App.context)
-                                    } ?: YT_DLP_VERSION.getString()
-                                ytdlpVersion = installedVersion
-                                when (result) {
-                                    YtDlpUpdater.Result.UPDATED,
-                                    YtDlpUpdater.Result.ALREADY_UP_TO_DATE ->
-                                        context.makeToast(
-                                            context.getString(R.string.yt_dlp_up_to_date) +
-                                                " ($installedVersion)"
-                                        )
-                                    YtDlpUpdater.Result.FAILED_ROLLED_BACK,
-                                    YtDlpUpdater.Result.FAILED ->
-                                        context.makeToast(
-                                            App.context.getString(R.string.yt_dlp_update_fail)
-                                        )
-                                }
-                            } catch (exception: kotlinx.coroutines.CancellationException) {
-                                throw exception
-                            } catch (exception: Exception) {
-                                context.makeToast(App.context.getString(R.string.yt_dlp_update_fail))
-                            } finally {
-                                isUpdating = false
-                            }
-                        }
+                        requestYtdlpUpdate()
                     },
                     onClickLabel = stringResource(id = R.string.update),
                     trailingIcon = {
@@ -166,6 +230,16 @@ fun TroubleShootingPage(
                 )
                 if (showYtdlpDialog) {
                     YtdlpUpdateChannelDialog(onDismissRequest = { showYtdlpDialog = false })
+                }
+                pendingNetworkConfirmation?.let { networkState ->
+                    YtDlpUpdateNetworkDialog(
+                        state = networkState,
+                        onConfirm = {
+                            pendingNetworkConfirmation = null
+                            requestYtdlpUpdate(confirmed = true)
+                        },
+                        onDismiss = { cancelNetworkConfirmation(networkState) },
+                    )
                 }
             }
 

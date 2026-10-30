@@ -7,6 +7,17 @@
     <string name="url_empty">معليش المفروض الرابط مو فاضي</string>
     <string name="extract_audio_summary">نزّل الصوت بعدين احفظه, مكان المقطع</string>
     <string name="yt_dlp_up_to_date">استخدم آخر نسخة من yt-dlp</string>
+    <string name="yt_dlp_version_unknown">غير معروف</string>
+    <string name="yt_dlp_current_engine">المحرك الحالي: %1$s</string>
+    <string name="yt_dlp_versions_summary">المحرك الحالي: %1$s\nآخر إصدار أبلغت عنه المكتبة: %2$s</string>
+    <string name="yt_dlp_updated">تم تحديث yt-dlp إلى %1$s</string>
+    <string name="yt_dlp_update_failed_rolled_back">تعذر التحديث؛ استعاد التطبيق محركًا سابقًا صالحًا. السبب: %1$s</string>
+    <string name="yt_dlp_update_failed_with_reason">تعذر التحديث. السبب: %1$s</string>
+    <string name="yt_dlp_no_network">لا يوجد اتصال بالإنترنت؛ لم تبدأ محاولة التحديث.</string>
+    <string name="yt_dlp_network_confirmation_title">استخدام هذه الشبكة لتحديث yt-dlp؟</string>
+    <string name="yt_dlp_metered_network_prompt">سيُنزّل تحديث yt-dlp عبر بيانات الهاتف أو شبكة محسوبة. هل تتابع لهذه المرة فقط؟ لن يتغير إعداد التحديث التلقائي.</string>
+    <string name="yt_dlp_unvalidated_network_prompt">لا يستطيع Android تأكيد اتصال هذه الشبكة بالإنترنت. هل تريد تجربة التحديث مرة واحدة؟ قد تفشل المحاولة، ولن يتغير إعداد التحديث التلقائي.</string>
+    <string name="yt_dlp_continue_once">متابعة هذه المرة</string>
     <string name="fetching_info">ترنا ندور عن معلومات الفيديو اذا ما عليك امر.</string>
     <string name="permission_denied">ماش رفضونا.</string>
     <string name="download_success_msg">خلص التحميل. تامر على شي ثاني حاضرين</string>

@@ -8,7 +8,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
-import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
 
 /**
  * Reads the version of the yt-dlp build that SnapNet will actually execute, and answers whether that
@@ -51,26 +51,21 @@ object YtDlpVersion {
     private fun installedBinary(context: Context): File =
         File(File(File(context.noBackupFilesDir, "youtubedl-android"), "yt-dlp"), "yt-dlp")
 
-    private fun readVersion(zip: ZipInputStream): String? {
-        zip.use {
-            var entry = it.nextEntry
-            while (entry != null) {
-                if (entry.name == VERSION_ENTRY) {
-                    val text = it.readBytes().toString(Charsets.UTF_8)
-                    return VERSION_PATTERN.find(text)?.groupValues?.get(1)
-                }
-                entry = it.nextEntry
-            }
+    private fun readVersion(zip: ZipFile): String? {
+        val entry = zip.getEntry(VERSION_ENTRY) ?: return null
+        return zip.getInputStream(entry).bufferedReader(Charsets.UTF_8).use { reader ->
+            VERSION_PATTERN.find(reader.readText())?.groupValues?.get(1)
         }
-        return null
     }
+
+    internal fun readVersionFromFile(file: File): String? = ZipFile(file).use { readVersion(it) }
 
     /** Version of the runtime-installed engine, or null when no update has been installed. */
     fun resolveInstalledVersion(context: Context): String? =
         runCatching {
                 val file = installedBinary(context)
-                if (!file.isFile) return@runCatching null
-                readVersion(ZipInputStream(file.inputStream()))
+                if (!file.isFile || file.length() == 0L) return@runCatching null
+                readVersionFromFile(file)
             }
             .onFailure { Log.w(TAG, "could not read the installed yt-dlp version", it) }
             .getOrNull()
@@ -78,13 +73,17 @@ object YtDlpVersion {
     /** Version of the engine bundled inside the APK. */
     fun resolveBundledVersion(context: Context): String? =
         runCatching {
-                readVersion(
-                    ZipInputStream(
-                        context.resources.openRawResource(
-                            com.yausername.youtubedl_android.R.raw.ytdlp
-                        )
-                    )
-                )
+                val bundledCopy = File.createTempFile("yt-dlp-version-", ".zip", context.cacheDir)
+                try {
+                    context.resources.openRawResource(com.yausername.youtubedl_android.R.raw.ytdlp).use { input ->
+                        bundledCopy.outputStream().buffered().use { output -> input.copyTo(output) }
+                    }
+                    readVersionFromFile(bundledCopy)
+                } finally {
+                    if (!bundledCopy.delete()) {
+                        Log.w(TAG, "could not delete the temporary bundled yt-dlp archive")
+                    }
+                }
             }
             .onFailure { Log.w(TAG, "could not read the bundled yt-dlp version", it) }
             .getOrNull()

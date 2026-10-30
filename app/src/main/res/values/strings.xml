@@ -11,6 +11,17 @@
     <string name="create_thumbnail_summary">Save video thumbnail as a file</string>
     <string name="yt_dlp_up_to_date">Using the latest version of yt-dlp</string>
     <string name="yt_dlp_update_fail">Could not install the latest yt-dlp version. Please make sure you are connected to the Internet.</string>
+    <string name="yt_dlp_version_unknown">unknown</string>
+    <string name="yt_dlp_current_engine">Current engine: %1$s</string>
+    <string name="yt_dlp_versions_summary">Current engine: %1$s\nLast reported latest: %2$s</string>
+    <string name="yt_dlp_updated">yt-dlp updated to %1$s</string>
+    <string name="yt_dlp_update_failed_rolled_back">Update failed; a previous working engine was restored. Reason: %1$s</string>
+    <string name="yt_dlp_update_failed_with_reason">Update failed. Reason: %1$s</string>
+    <string name="yt_dlp_no_network">No internet connection is available; no update was attempted.</string>
+    <string name="yt_dlp_network_confirmation_title">Use this connection for the yt-dlp update?</string>
+    <string name="yt_dlp_metered_network_prompt">This update will download yt-dlp using metered/mobile data. Continue for this update only? Automatic update settings will not change.</string>
+    <string name="yt_dlp_unvalidated_network_prompt">Android cannot confirm internet access on this network. Try the update once anyway? It may fail. Automatic update settings will not change.</string>
+    <string name="yt_dlp_continue_once">Continue once</string>
     <string name="fetching_info">Fetching video info…</string>
     <string name="permission_denied">Permission denied</string>
     <string name="download_success_msg">Download finished</string>

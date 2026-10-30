@@ -330,8 +330,9 @@ class App : Application() {
          * and `--ffmpeg-location` to the command for *every* request, so a successful `--version`
          * also proves those options are accepted.
          *
-         * Recovery order: run it, update it, fall back to the engine bundled in the APK, and only
-         * then give up — with a failure the UI can show, never an unhandled exception mid-startup.
+         * Recovery order: run it, update it when the network policy permits, fall back to the engine
+         * bundled in the APK, and only then give up — with a failure the UI can show, never an
+         * unhandled exception mid-startup.
          */
         private suspend fun ensureYtDlpReady(app: Context) {
             fun record(version: String, how: String) {
@@ -341,9 +342,17 @@ class App : Application() {
 
             YtDlpEngine.probeVersion().onSuccess { record(it, "running"); return }
 
-            Log.w(TAG, "the engine could not be run; attempting an update")
-            runCatching { UpdateUtil.updateYtDlp() }
-                .onFailure { Log.w(TAG, "yt-dlp update failed", it) }
+            Log.w(TAG, "the engine could not be run; attempting recovery")
+            if (PreferenceUtil.isNetworkAvailableForYtDlpUpdate()) {
+                runCatching { UpdateUtil.updateYtDlp() }
+                    .onFailure { Log.w(TAG, "yt-dlp update failed", it) }
+            } else {
+                UpdateUtil.recordYtDlpUpdateStatus(
+                    "DEFERRED_NO_VALIDATED_NETWORK",
+                    "no_validated_network_or_metered_disabled",
+                )
+                Log.i(TAG, "skipping yt-dlp recovery update because the automatic network policy disallows it")
+            }
             YtDlpEngine.probeVersion().onSuccess { record(it, "after update"); return }
 
             // An update that reports ALREADY_UP_TO_DATE while the engine still cannot run means the

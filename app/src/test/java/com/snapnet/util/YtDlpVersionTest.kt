@@ -1,8 +1,13 @@
 package com.snapnet.util
 
+import java.io.ByteArrayOutputStream
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -14,6 +19,28 @@ class YtDlpVersionTest {
 
         assertTrue(YtDlpVersion.isOlderThan90Days("2025.11.12", now))
         assertFalse(YtDlpVersion.isOlderThan90Days("2026.08.19", now))
+    }
+
+    @Test
+    fun readsVersionFromShebangPrefixedZipApp() {
+        val archiveBytes = ByteArrayOutputStream()
+        ZipOutputStream(archiveBytes).use { archive ->
+            archive.putNextEntry(ZipEntry("yt_dlp/version.py"))
+            archive.write("__version__ = '2026.08.19'\n".toByteArray(Charsets.UTF_8))
+            archive.closeEntry()
+        }
+
+        val zipApp = File.createTempFile("yt-dlp-version-test-", ".zip")
+        try {
+            zipApp.outputStream().buffered().use { output ->
+                output.write("#!/usr/bin/env python3\n".toByteArray(Charsets.UTF_8))
+                output.write(archiveBytes.toByteArray())
+            }
+
+            assertEquals("2026.08.19", YtDlpVersion.readVersionFromFile(zipApp))
+        } finally {
+            zipApp.delete()
+        }
     }
 
     @Test
