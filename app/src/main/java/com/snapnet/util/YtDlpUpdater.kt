@@ -10,7 +10,6 @@ import java.net.URI
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
-import java.util.zip.ZipFile
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -92,10 +91,10 @@ object YtDlpUpdater {
     private fun isUsable(file: File?): Boolean = file != null && file.isFile && file.length() > 0L
 
     /** Accepts zipapps with or without a shebang/executable prefix, but requires yt-dlp's version module. */
-    private fun verifyInstalledBinary(file: File?): Boolean {
+    internal fun verifyInstalledBinary(file: File?): Boolean {
         if (!isUsable(file)) return false
         val binary = file ?: return false
-        return runCatching { ZipFile(binary).use { it.getEntry(VERSION_ENTRY) != null } }
+        return runCatching { YtDlpZipApp.readEntry(binary, VERSION_ENTRY) != null }
             .onFailure { Log.w(TAG, "yt-dlp asset is not a readable zipapp", it) }
             .getOrDefault(false)
     }
@@ -271,7 +270,7 @@ object YtDlpUpdater {
         }
     }
 
-    private fun failureResult(hadWorkingEngine: Boolean): Result =
+    internal fun failureResult(hadWorkingEngine: Boolean): Result =
         if (hadWorkingEngine) Result.FAILED_ROLLED_BACK else Result.FAILED
 
     private fun installVerifiedAsset(context: Context, asset: File): Boolean {

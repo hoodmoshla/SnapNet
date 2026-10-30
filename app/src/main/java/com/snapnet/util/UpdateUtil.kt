@@ -139,12 +139,18 @@ object UpdateUtil {
                 context.getString(R.string.yt_dlp_updated, outcome.effectiveVersion)
             YtDlpUpdater.Result.ALREADY_UP_TO_DATE ->
                 "${context.getString(R.string.yt_dlp_up_to_date)} (${outcome.effectiveVersion})"
-            YtDlpUpdater.Result.FAILED_ROLLED_BACK ->
-                context.getString(R.string.yt_dlp_update_failed_rolled_back, diagnostic)
+            YtDlpUpdater.Result.FAILED_ROLLED_BACK,
             YtDlpUpdater.Result.FAILED ->
-                context.getString(R.string.yt_dlp_update_failed_with_reason, diagnostic)
+                context.getString(manualUpdateFailureMessageResource(outcome.result), diagnostic)
         }
     }
+
+    internal fun manualUpdateFailureMessageResource(result: YtDlpUpdater.Result): Int =
+        when (result) {
+            YtDlpUpdater.Result.FAILED_ROLLED_BACK -> R.string.yt_dlp_update_failed_rolled_back
+            YtDlpUpdater.Result.FAILED -> R.string.yt_dlp_update_failed_with_reason
+            else -> error("A success result has no manual update failure message")
+        }
 
     private fun getLatestRelease(): Release? =
         client.newCall(requestForReleases).execute().body.use {

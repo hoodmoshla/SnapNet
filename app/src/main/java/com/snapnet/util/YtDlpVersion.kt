@@ -8,7 +8,6 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
-import java.util.zip.ZipFile
 
 /**
  * Reads the version of the yt-dlp build that SnapNet will actually execute, and answers whether that
@@ -51,14 +50,10 @@ object YtDlpVersion {
     private fun installedBinary(context: Context): File =
         File(File(File(context.noBackupFilesDir, "youtubedl-android"), "yt-dlp"), "yt-dlp")
 
-    private fun readVersion(zip: ZipFile): String? {
-        val entry = zip.getEntry(VERSION_ENTRY) ?: return null
-        return zip.getInputStream(entry).bufferedReader(Charsets.UTF_8).use { reader ->
-            VERSION_PATTERN.find(reader.readText())?.groupValues?.get(1)
-        }
-    }
-
-    internal fun readVersionFromFile(file: File): String? = ZipFile(file).use { readVersion(it) }
+    internal fun readVersionFromFile(file: File): String? =
+        YtDlpZipApp.readEntry(file, VERSION_ENTRY)
+            ?.toString(Charsets.UTF_8)
+            ?.let { VERSION_PATTERN.find(it)?.groupValues?.get(1) }
 
     /** Version of the runtime-installed engine, or null when no update has been installed. */
     fun resolveInstalledVersion(context: Context): String? =

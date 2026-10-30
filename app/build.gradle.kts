@@ -52,7 +52,7 @@ android {
         applicationId = "com.snapnet"
         minSdk = 24
         targetSdk = 35
-        versionCode = 100_080_400
+        versionCode = 100_090_400
         check(versionCode == currentVersionCode)
 
         versionName = baseVersionName

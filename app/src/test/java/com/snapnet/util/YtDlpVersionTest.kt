@@ -9,6 +9,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -38,6 +39,7 @@ class YtDlpVersionTest {
             }
 
             assertEquals("2026.08.19", YtDlpVersion.readVersionFromFile(zipApp))
+            assertTrue(YtDlpUpdater.verifyInstalledBinary(zipApp))
         } finally {
             zipApp.delete()
         }
@@ -78,6 +80,26 @@ class YtDlpVersionTest {
         assertTrue(YtDlpVersion.isOlderThan90Days(null, now))
         assertTrue(YtDlpVersion.isOlderThan90Days("unknown", now))
         assertTrue(YtDlpVersion.isOlderThan90Days("2025.02.31", now))
+    }
+
+    @Test
+    fun rejectsZipAppsWithoutYtDlpVersionModule() {
+        val archiveBytes = ByteArrayOutputStream()
+        ZipOutputStream(archiveBytes).use { archive ->
+            archive.putNextEntry(ZipEntry("not_yt_dlp.txt"))
+            archive.write("not a yt-dlp engine".toByteArray(Charsets.UTF_8))
+            archive.closeEntry()
+        }
+
+        val zipApp = File.createTempFile("yt-dlp-invalid-test-", ".zip")
+        try {
+            zipApp.writeBytes(archiveBytes.toByteArray())
+
+            assertFalse(YtDlpUpdater.verifyInstalledBinary(zipApp))
+            assertNull(YtDlpVersion.readVersionFromFile(zipApp))
+        } finally {
+            zipApp.delete()
+        }
     }
 
     private fun utcTimestamp(date: String): Long =
