@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'fix/snapnet-youtube-stale-ytdlp-2026-10-30' ]
     tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
@@ -31,7 +31,7 @@ env:
   EXPECTED_SIGNING_CERT_SHA256: "31:60:36:6E:4E:39:07:8C:C0:D5:88:99:E1:41:68:07:79:B1:23:1E:48:09:01:E7:0C:55:A6:F2:06:C0:5E:57"
   # One APK per ABI is published. Each contains the native libraries for that ABI only, which keeps
   # the download small; a universal APK would carry all four and be roughly four times the size.
-  RELEASE_ABIS: ${{ github.event_name == 'workflow_dispatch' && inputs.abi || 'arm64-v8a armeabi-v7a x86 x86_64' }}
+  RELEASE_ABIS: ${{ github.event_name == 'workflow_dispatch' && inputs.abi || (github.ref == 'refs/heads/fix/snapnet-youtube-stale-ytdlp-2026-10-30' && 'arm64-v8a') || 'arm64-v8a armeabi-v7a x86 x86_64' }}
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -249,9 +249,9 @@ jobs:
       - name: Build per-ABI release APKs
         run: |
           set -euo pipefail
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || [ "$GITHUB_REF" = "refs/heads/fix/snapnet-youtube-stale-ytdlp-2026-10-30" ]; then
             # Use the existing no-splits Gradle mode with the selected ABI filter
-            # so a manual test run produces only the requested APK.
+            # so manual and branch test runs produce only the requested APK.
             ./gradlew :app:assembleGenericRelease \
               -PnoSplits -PABI_FILTERS="$RELEASE_ABIS" \
               --stacktrace --no-daemon --no-configuration-cache
@@ -447,8 +447,8 @@ jobs:
       - name: Upload release APKs
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.event_name == 'workflow_dispatch' && 'snapnet-arm64-test-apk' || 'snapnet-apks' }}
-          path: ${{ github.event_name == 'workflow_dispatch' && 'release-apk/SnapNet-*-arm64-v8a-release.apk' || 'release-apk/*' }}
+          name: ${{ (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/fix/snapnet-youtube-stale-ytdlp-2026-10-30') && 'snapnet-arm64-test-apk' || 'snapnet-apks' }}
+          path: ${{ (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/fix/snapnet-youtube-stale-ytdlp-2026-10-30') && 'release-apk/SnapNet-*-arm64-v8a-release.apk' || 'release-apk/*' }}
           if-no-files-found: error
           retention-days: 30
 

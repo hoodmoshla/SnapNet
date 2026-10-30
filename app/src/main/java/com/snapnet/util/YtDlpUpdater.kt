@@ -5,7 +5,10 @@ import android.util.Log
 import com.yausername.youtubedl_android.YoutubeDL
 import java.io.File
 import java.io.IOException
+import java.net.ConnectException
 import java.net.URI
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipFile
 import kotlinx.serialization.SerialName
@@ -28,6 +31,10 @@ object YtDlpUpdater {
     private const val STABLE_REPOSITORY = "yt-dlp/yt-dlp"
     private const val NIGHTLY_REPOSITORY = "yt-dlp/yt-dlp-nightly-builds"
     private const val MASTER_REPOSITORY = "yt-dlp/yt-dlp-master-builds"
+
+    /** A deliberately small, non-sensitive reason code for the diagnostic report. */
+    @Volatile var lastFailureDiagnostic: String? = null
+        private set
 
     private val json = Json { ignoreUnknownKeys = true }
     private val client =
@@ -163,11 +170,34 @@ object YtDlpUpdater {
         }
     }
 
+    internal fun diagnosticFor(exception: Exception): String {
+        val message = exception.message.orEmpty()
+        val httpCode =
+            Regex("(?i)(?:GitHub returned|GitHub asset download failed with) HTTP (\\d{3})")
+                .find(message)
+                ?.groupValues
+                ?.get(1)
+        if (httpCode != null) return "github_http_$httpCode"
+
+        return when {
+            exception is SocketTimeoutException -> "network_timeout"
+            exception is UnknownHostException -> "network_dns_failure"
+            exception is ConnectException -> "network_connection_failure"
+            message.contains("checksum", ignoreCase = true) -> "checksum_verification_failed"
+            message.contains("zipapp", ignoreCase = true) -> "engine_archive_invalid"
+            message.contains("backup", ignoreCase = true) -> "safety_backup_failed"
+            message.contains("release is missing", ignoreCase = true) -> "release_asset_missing"
+            exception is IOException -> "io_error"
+            else -> "update_error_${exception.javaClass.simpleName.take(40)}"
+        }
+    }
+
     /**
      * Downloads the selected release's yt-dlp asset and checksum manifest, verifies SHA-256, then
      * installs the verified zipapp with rollback protection.
      */
     fun safeUpdate(context: Context, channel: YoutubeDL.UpdateChannel): Result {
+        lastFailureDiagnostic = null
         val previousBinary = locateBinary(context)
         val hadWorkingEngine = verifyInstalledBinary(previousBinary)
         var downloadedAsset: File? = null
@@ -189,6 +219,7 @@ object YtDlpUpdater {
             }
 
             if (hadWorkingEngine && !backup(context, previousBinary!!)) {
+                lastFailureDiagnostic = "safety_backup_failed"
                 Log.w(TAG, "skipping yt-dlp update: could not create a verified safety backup")
                 return Result.FAILED_ROLLED_BACK
             }
@@ -196,35 +227,44 @@ object YtDlpUpdater {
             downloadedAsset = File.createTempFile("yt-dlp-", ".download", context.cacheDir)
             downloadAsset(binaryUrl, downloadedAsset)
             if (!YtDlpChecksum.matches(downloadedAsset, expectedSha256)) {
+                lastFailureDiagnostic = "checksum_mismatch"
                 Log.w(TAG, "downloaded yt-dlp SHA-256 does not match the release manifest")
                 return failureResult(hadWorkingEngine)
             }
             if (!verifyInstalledBinary(downloadedAsset)) {
+                lastFailureDiagnostic = "engine_archive_invalid"
                 Log.w(TAG, "verified yt-dlp asset is not a usable zipapp")
                 return failureResult(hadWorkingEngine)
             }
 
             if (!installVerifiedAsset(context, downloadedAsset)) {
+                lastFailureDiagnostic = "install_failed"
                 Log.w(TAG, "yt-dlp install failed; restoring the previous engine")
                 return if (hadWorkingEngine && rollback(context)) Result.FAILED_ROLLED_BACK else Result.FAILED
             }
 
             if (YtDlpEngine.probeVersionBlocking().isFailure) {
                 Log.w(TAG, "updated yt-dlp failed its Android runtime probe; restoring the previous engine")
-                val restored =
-                    if (hadWorkingEngine) {
-                        rollback(context)
-                    } else {
-                        YtDlpEngine.restoreBundledEngine(context).isSuccess
-                    }
-                val restoredEngineRuns = restored && YtDlpEngine.probeVersionBlocking().isSuccess
+                var restoredEngineRuns =
+                    hadWorkingEngine &&
+                        rollback(context) &&
+                        YtDlpEngine.probeVersionBlocking().isSuccess
+                if (!restoredEngineRuns) {
+                    restoredEngineRuns =
+                        YtDlpEngine.restoreBundledEngine(context).isSuccess &&
+                            YtDlpEngine.probeVersionBlocking().isSuccess
+                }
+                lastFailureDiagnostic =
+                    if (restoredEngineRuns) "runtime_probe_failed_restored_previous"
+                    else "runtime_probe_and_recovery_failed"
                 return if (restoredEngineRuns) Result.FAILED_ROLLED_BACK else Result.FAILED
             }
 
             Log.i(TAG, "yt-dlp updated and SHA-256 verified (release ${release.tagName})")
             return Result.UPDATED
         } catch (exception: Exception) {
-            Log.w(TAG, "yt-dlp update failed", exception)
+            lastFailureDiagnostic = diagnosticFor(exception)
+            Log.w(TAG, "yt-dlp update failed (${lastFailureDiagnostic})")
             return failureResult(hadWorkingEngine)
         } finally {
             downloadedAsset?.delete()

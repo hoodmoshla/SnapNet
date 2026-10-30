@@ -109,6 +109,8 @@ import com.snapnet.util.THUMBNAIL
 import com.snapnet.util.ToastUtil
 import com.snapnet.util.UpdateUtil
 import com.snapnet.util.YT_DLP_VERSION
+import com.snapnet.util.YtDlpUpdater
+import com.snapnet.util.YtDlpVersion
 import com.yausername.youtubedl_android.YoutubeDL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -232,24 +234,36 @@ fun GeneralDownloadPreferences(onNavigateBack: () -> Unit, navigateToTemplate: (
                         },
                         onClick = {
                             scope.launch {
-                                runCatching {
-                                        isUpdating = true
-                                        UpdateUtil.updateYtDlp()
-                                        ytdlpVersion = YT_DLP_VERSION.getString()
+                                isUpdating = true
+                                try {
+                                    val result = UpdateUtil.updateYtDlp()
+                                    val installedVersion =
+                                        withContext(Dispatchers.IO) {
+                                            YtDlpVersion.resolveEffectiveVersion(App.context)
+                                        } ?: YT_DLP_VERSION.getString()
+                                    ytdlpVersion = installedVersion
+                                    when (result) {
+                                        YtDlpUpdater.Result.UPDATED,
+                                        YtDlpUpdater.Result.ALREADY_UP_TO_DATE ->
+                                            ToastUtil.makeToastSuspend(
+                                                context.getString(R.string.yt_dlp_up_to_date) +
+                                                    " ($installedVersion)"
+                                            )
+                                        YtDlpUpdater.Result.FAILED_ROLLED_BACK,
+                                        YtDlpUpdater.Result.FAILED ->
+                                            ToastUtil.makeToastSuspend(
+                                                App.context.getString(R.string.yt_dlp_update_fail)
+                                            )
                                     }
-                                    .onFailure { th ->
-                                        th.printStackTrace()
-                                        ToastUtil.makeToastSuspend(
-                                            App.context.getString(R.string.yt_dlp_update_fail)
-                                        )
-                                    }
-                                    .onSuccess {
-                                        ToastUtil.makeToastSuspend(
-                                            context.getString(R.string.yt_dlp_up_to_date) +
-                                                " (${YT_DLP_VERSION.getString()})"
-                                        )
-                                    }
-                                isUpdating = false
+                                } catch (exception: kotlinx.coroutines.CancellationException) {
+                                    throw exception
+                                } catch (exception: Exception) {
+                                    ToastUtil.makeToastSuspend(
+                                        App.context.getString(R.string.yt_dlp_update_fail)
+                                    )
+                                } finally {
+                                    isUpdating = false
+                                }
                             }
                         },
                         onClickLabel = stringResource(id = R.string.update),

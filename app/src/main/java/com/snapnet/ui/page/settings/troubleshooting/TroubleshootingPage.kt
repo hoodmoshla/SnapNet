@@ -42,6 +42,8 @@ import com.snapnet.util.PreferenceUtil.updateBoolean
 import com.snapnet.util.RESTRICT_FILENAMES
 import com.snapnet.util.UpdateUtil
 import com.snapnet.util.YT_DLP_VERSION
+import com.snapnet.util.YtDlpUpdater
+import com.snapnet.util.YtDlpVersion
 import com.snapnet.util.makeToast
 import com.yausername.youtubedl_android.YoutubeDL
 import kotlinx.coroutines.Dispatchers
@@ -121,29 +123,35 @@ fun TroubleShootingPage(
                         }
                     },
                     onClick = {
-                        scope.launch(Dispatchers.IO) {
-                            runCatching {
-                                    isUpdating = true
-                                    UpdateUtil.updateYtDlp()
-                                    ytdlpVersion = YT_DLP_VERSION.getString()
-                                }
-                                .onFailure { th ->
-                                    th.printStackTrace()
-                                    withContext(Dispatchers.Main) {
+                        scope.launch {
+                            isUpdating = true
+                            try {
+                                val result = UpdateUtil.updateYtDlp()
+                                val installedVersion =
+                                    withContext(Dispatchers.IO) {
+                                        YtDlpVersion.resolveEffectiveVersion(App.context)
+                                    } ?: YT_DLP_VERSION.getString()
+                                ytdlpVersion = installedVersion
+                                when (result) {
+                                    YtDlpUpdater.Result.UPDATED,
+                                    YtDlpUpdater.Result.ALREADY_UP_TO_DATE ->
+                                        context.makeToast(
+                                            context.getString(R.string.yt_dlp_up_to_date) +
+                                                " ($installedVersion)"
+                                        )
+                                    YtDlpUpdater.Result.FAILED_ROLLED_BACK,
+                                    YtDlpUpdater.Result.FAILED ->
                                         context.makeToast(
                                             App.context.getString(R.string.yt_dlp_update_fail)
                                         )
-                                    }
                                 }
-                                .onSuccess {
-                                    withContext(Dispatchers.Main) {
-                                        context.makeToast(
-                                            context.getString(R.string.yt_dlp_up_to_date) +
-                                                " (${YT_DLP_VERSION.getString()})"
-                                        )
-                                    }
-                                }
-                            isUpdating = false
+                            } catch (exception: kotlinx.coroutines.CancellationException) {
+                                throw exception
+                            } catch (exception: Exception) {
+                                context.makeToast(App.context.getString(R.string.yt_dlp_update_fail))
+                            } finally {
+                                isUpdating = false
+                            }
                         }
                     },
                     onClickLabel = stringResource(id = R.string.update),

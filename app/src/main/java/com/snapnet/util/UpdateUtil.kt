@@ -12,6 +12,7 @@ import com.snapnet.R
 import com.snapnet.util.FileUtil.getFileProvider
 import com.snapnet.util.PreferenceUtil.getInt
 import com.snapnet.util.PreferenceUtil.updateLong
+import com.snapnet.util.PreferenceUtil.updateString
 import com.yausername.youtubedl_android.YoutubeDL
 import java.io.File
 import java.util.regex.Pattern
@@ -62,6 +63,9 @@ object UpdateUtil {
      */
     suspend fun updateYtDlp(): YtDlpUpdater.Result =
         withContext(Dispatchers.IO) {
+            YT_DLP_UPDATE_ATTEMPT_TIME.updateLong(System.currentTimeMillis())
+            YT_DLP_UPDATE_STATUS.updateString("RUNNING")
+            YT_DLP_UPDATE_DIAGNOSTIC.updateString("")
             val channel =
                 when (YT_DLP_UPDATE_CHANNEL.getInt()) {
                     YT_DLP_NIGHTLY -> YoutubeDL.UpdateChannel.NIGHTLY
@@ -69,6 +73,16 @@ object UpdateUtil {
                 }
 
             val result = YtDlpUpdater.safeUpdate(context, channel)
+            YT_DLP_UPDATE_STATUS.updateString(result.name)
+            YT_DLP_UPDATE_DIAGNOSTIC.updateString(
+                when (result) {
+                    YtDlpUpdater.Result.UPDATED,
+                    YtDlpUpdater.Result.ALREADY_UP_TO_DATE -> ""
+                    YtDlpUpdater.Result.FAILED_ROLLED_BACK,
+                    YtDlpUpdater.Result.FAILED ->
+                        YtDlpUpdater.lastFailureDiagnostic ?: "update_failed"
+                }
+            )
 
             if (result == YtDlpUpdater.Result.UPDATED) {
                 YtDlpVersion.resolveEffectiveVersion(context)?.let {

@@ -115,6 +115,9 @@ const val YT_DLP_UPDATE_CHANNEL = "yt-dlp_update_channel"
 const val YT_DLP_UPDATE_TIME = "yt-dlp_last_update"
 const val YT_DLP_UPDATE_INTERVAL = "yt-dlp_update_interval"
 const val YT_DLP_STALE_REFRESH_VERSION = "yt-dlp_stale_refresh_version"
+const val YT_DLP_UPDATE_ATTEMPT_TIME = "yt-dlp_update_attempt_time"
+const val YT_DLP_UPDATE_STATUS = "yt-dlp_update_status"
+const val YT_DLP_UPDATE_DIAGNOSTIC = "yt-dlp_update_diagnostic"
 
 private const val INTERVAL_DAY = 86_400_000L
 private const val INTERVAL_WEEK = 86_400_000L * 7
@@ -304,6 +307,22 @@ object PreferenceUtil {
 
     fun isNetworkAvailableForDownload() =
         CELLULAR_DOWNLOAD.getBoolean() || !App.connectivityManager.isActiveNetworkMetered
+
+    /** Requires validated internet and honors the user's setting for metered connections. */
+    fun isNetworkAvailableForYtDlpUpdate(): Boolean {
+        val manager = App.connectivityManager
+        val network = manager.activeNetwork ?: return false
+        val capabilities = manager.getNetworkCapabilities(network) ?: return false
+        if (
+            !capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
+                !capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        ) {
+            return false
+        }
+        val isMetered =
+            !capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+        return CELLULAR_DOWNLOAD.getBoolean() || !isMetered
+    }
 
     fun isAutoUpdateEnabled(): Boolean {
         return when {

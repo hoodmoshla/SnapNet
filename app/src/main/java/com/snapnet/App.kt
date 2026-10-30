@@ -38,11 +38,15 @@ import com.snapnet.util.FileUtil.getExternalDownloadDirectory
 import com.snapnet.util.FileUtil.getExternalPrivateDownloadDirectory
 import com.snapnet.util.NotificationUtil
 import com.snapnet.util.PreferenceUtil
+import com.snapnet.util.PreferenceUtil.getLong
 import com.snapnet.util.PreferenceUtil.getString
 import com.snapnet.util.PreferenceUtil.updateString
 import com.snapnet.util.SDCARD_URI
 import com.snapnet.util.UpdateUtil
 import com.snapnet.util.VIDEO_DIRECTORY
+import com.snapnet.util.YT_DLP_UPDATE_ATTEMPT_TIME
+import com.snapnet.util.YT_DLP_UPDATE_DIAGNOSTIC
+import com.snapnet.util.YT_DLP_UPDATE_STATUS
 import com.snapnet.util.YT_DLP_VERSION
 import com.snapnet.util.YtDlpEngine
 import com.snapnet.util.YtDlpVersion
@@ -51,6 +55,10 @@ import com.yausername.aria2c.Aria2c
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -403,16 +411,39 @@ class App : Application() {
                 } else {
                     Build.VERSION.RELEASE
                 }
+            val bundledEngineVersion = YtDlpVersion.resolveBundledVersion(context) ?: "unknown"
+            val installedEngineVersion =
+                YtDlpVersion.resolveInstalledVersion(context) ?: "not installed"
+            val effectiveEngineVersion =
+                YtDlpVersion.resolveEffectiveVersion(context)
+                    ?: YT_DLP_VERSION.getString().ifEmpty { "unknown" }
+            val updateStatus = YT_DLP_UPDATE_STATUS.getString().ifEmpty { "NOT_RECORDED" }
+            val updateDiagnostic = YT_DLP_UPDATE_DIAGNOSTIC.getString()
+            val updateAttemptTime = YT_DLP_UPDATE_ATTEMPT_TIME.getLong()
+            val updateAttemptText =
+                if (updateAttemptTime > 0L) {
+                    SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.ROOT)
+                        .apply { timeZone = TimeZone.getTimeZone("UTC") }
+                        .format(Date(updateAttemptTime))
+                } else {
+                    "never"
+                }
             return StringBuilder()
                 .append("App version: $versionName ($versionCode)\n")
+                .append("Build commit: ${BuildConfig.BUILD_COMMIT}\n")
+                .append("Build variant: ${BuildConfig.FLAVOR}/${BuildConfig.BUILD_TYPE}\n")
                 .append("Device information: Android $release (API ${Build.VERSION.SDK_INT})\n")
                 .append("Supported ABIs: ${Build.SUPPORTED_ABIS.contentToString()}\n")
-                .append("Yt-dlp version: ")
-                .append(
-                    YtDlpVersion.resolveEffectiveVersion(context)
-                        ?: YT_DLP_VERSION.getString().ifEmpty { "unknown" }.let { it }
-                )
-                .append("\n")
+                .append("Yt-dlp bundled version: $bundledEngineVersion\n")
+                .append("Yt-dlp installed version: $installedEngineVersion\n")
+                .append("Yt-dlp effective version: $effectiveEngineVersion\n")
+                .append("Yt-dlp update status: $updateStatus\n")
+                .append("Yt-dlp update last attempt (UTC): $updateAttemptText\n")
+                .apply {
+                    if (updateDiagnostic.isNotBlank()) {
+                        append("Yt-dlp update diagnostic: $updateDiagnostic\n")
+                    }
+                }
                 .toString()
         }
 

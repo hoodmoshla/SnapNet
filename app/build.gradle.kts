@@ -24,6 +24,11 @@ val abiCodes = mapOf("armeabi-v7a" to 1, "arm64-v8a" to 2, "x86" to 3, "x86_64" 
 
 val baseVersionName = currentVersion.name
 val currentVersionCode = currentVersion.code.toInt()
+val buildCommit =
+    System.getenv("GITHUB_SHA")
+        ?.takeIf { it.matches(Regex("[0-9a-fA-F]{40}")) }
+        ?.take(12)
+        ?: "local"
 
 android {
     compileSdk = 35
@@ -47,10 +52,11 @@ android {
         applicationId = "com.snapnet"
         minSdk = 24
         targetSdk = 35
-        versionCode = 100_060_400
+        versionCode = 100_070_400
         check(versionCode == currentVersionCode)
 
         versionName = baseVersionName
+        buildConfigField("String", "BUILD_COMMIT", "\"$buildCommit\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
 
