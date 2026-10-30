@@ -209,6 +209,18 @@ object YtDlpUpdater {
                 return if (hadWorkingEngine && rollback(context)) Result.FAILED_ROLLED_BACK else Result.FAILED
             }
 
+            if (YtDlpEngine.probeVersionBlocking().isFailure) {
+                Log.w(TAG, "updated yt-dlp failed its Android runtime probe; restoring the previous engine")
+                val restored =
+                    if (hadWorkingEngine) {
+                        rollback(context)
+                    } else {
+                        YtDlpEngine.restoreBundledEngine(context).isSuccess
+                    }
+                val restoredEngineRuns = restored && YtDlpEngine.probeVersionBlocking().isSuccess
+                return if (restoredEngineRuns) Result.FAILED_ROLLED_BACK else Result.FAILED
+            }
+
             Log.i(TAG, "yt-dlp updated and SHA-256 verified (release ${release.tagName})")
             return Result.UPDATED
         } catch (exception: Exception) {

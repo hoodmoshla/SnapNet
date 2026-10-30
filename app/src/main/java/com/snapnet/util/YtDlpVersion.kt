@@ -3,6 +3,11 @@ package com.snapnet.util
 import android.content.Context
 import android.util.Log
 import java.io.File
+import java.text.ParsePosition
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
+import java.util.TimeZone
 import java.util.zip.ZipInputStream
 
 /**
@@ -35,6 +40,12 @@ object YtDlpVersion {
      * Facebook extraction. The engine must be updated before any request is issued.
      */
     const val MIN_VERSION_FOR_JS_RUNTIMES = "2025.01.01"
+
+    /** Match yt-dlp's own warning threshold for binaries that have aged past 90 days. */
+    const val STALE_AFTER_DAYS = 90
+
+    private val VERSION_DATE_PATTERN =
+        Regex("""^(\d{4}\.\d{1,2}\.\d{1,2})(?:\.\d+)?(?:[-+].*)?$""")
 
     /** Where `youtubedl-android` keeps a runtime-installed engine. */
     private fun installedBinary(context: Context): File =
@@ -94,6 +105,51 @@ object YtDlpVersion {
         if (b == null) return 1
         return a.trim().compareTo(b.trim())
     }
+
+    /** Returns true when the version date is older than yt-dlp's 90-day update warning threshold. */
+    fun isOlderThan90Days(
+        version: String?,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): Boolean {
+        val versionDateText =
+            VERSION_DATE_PATTERN.matchEntire(version.orEmpty().trim())
+                ?.groupValues
+                ?.get(1)
+                ?: return true
+        val formatter =
+            SimpleDateFormat("yyyy.M.d", Locale.ROOT).apply {
+                isLenient = false
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+        val position = ParsePosition(0)
+        val releaseDate = formatter.parse(versionDateText, position)
+        if (releaseDate == null || position.index != versionDateText.length) return true
+
+        val cutoff =
+            Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+                timeInMillis = nowMillis
+                add(Calendar.DAY_OF_YEAR, -STALE_AFTER_DAYS)
+            }.time
+        return releaseDate.before(cutoff)
+    }
+
+    /**
+     * Forces an update for each stale version, then retries after the normal interval if no newer
+     * release was available.
+     */
+    fun shouldForceStaleRefresh(
+        version: String?,
+        lastForcedRefreshVersion: String?,
+        lastUpdateTime: Long,
+        updateIntervalMillis: Long,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): Boolean =
+        isOlderThan90Days(version, nowMillis) &&
+            (
+                (version ?: "unknown") != lastForcedRefreshVersion ||
+                    lastUpdateTime <= 0L ||
+                    nowMillis >= lastUpdateTime + updateIntervalMillis
+            )
 
     /** @return true when [version] understands `--js-runtimes`. */
     fun supportsJsRuntimes(version: String?): Boolean =

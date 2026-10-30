@@ -38,19 +38,20 @@ object YtDlpEngine {
      * @return success with the reported version, or failure when the engine could not be executed,
      *   exited non-zero, or did not report a version.
      */
-    suspend fun probeVersion(): Result<String> =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                    val request = YoutubeDLRequest(listOf("--version"))
-                    val response = YoutubeDL.getInstance().execute(request)
-                    val output = "${response.out}\n${response.err}"
-                    VERSION_PATTERN.find(output)?.groupValues?.get(1)
-                        ?: throw IllegalStateException(
-                            "the engine did not report a version; output was: ${output.trim().take(200)}"
-                        )
-                }
-                .onFailure { Log.w(TAG, "yt-dlp engine probe failed", it) }
-        }
+    suspend fun probeVersion(): Result<String> = withContext(Dispatchers.IO) { probeVersionBlocking() }
+
+    /** Synchronous variant for updater code that already runs on an IO thread. */
+    fun probeVersionBlocking(): Result<String> =
+        runCatching {
+                val request = YoutubeDLRequest(listOf("--version"))
+                val response = YoutubeDL.getInstance().execute(request)
+                val output = "${response.out}\n${response.err}"
+                VERSION_PATTERN.find(output)?.groupValues?.get(1)
+                    ?: throw IllegalStateException(
+                        "the engine did not report a version; output was: ${output.trim().take(200)}"
+                    )
+            }
+            .onFailure { Log.w(TAG, "yt-dlp engine probe failed", it) }
 
     /**
      * Deletes any runtime-installed engine so that `youtubedl-android` re-extracts the copy bundled

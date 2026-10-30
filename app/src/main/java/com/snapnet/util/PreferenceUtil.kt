@@ -114,6 +114,7 @@ private const val DOWNLOAD_TYPE = "download_type"
 const val YT_DLP_UPDATE_CHANNEL = "yt-dlp_update_channel"
 const val YT_DLP_UPDATE_TIME = "yt-dlp_last_update"
 const val YT_DLP_UPDATE_INTERVAL = "yt-dlp_update_interval"
+const val YT_DLP_STALE_REFRESH_VERSION = "yt-dlp_stale_refresh_version"
 
 private const val INTERVAL_DAY = 86_400_000L
 private const val INTERVAL_WEEK = 86_400_000L * 7
