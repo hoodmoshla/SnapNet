@@ -133,8 +133,23 @@ object DownloadUtil {
         request.runCatching {
             val response: YoutubeDLResponse =
                 YoutubeDL.getInstance().execute(request, taskKey, null)
-            jsonFormat.decodeFromString(response.out)
+            parseVideoInfo(response.out)
         }
+
+    /** A single-video/share request must never silently become a blank format picker. */
+    internal fun parseVideoInfo(output: String): VideoInfo {
+        val info = jsonFormat.decodeFromString<VideoInfo>(output)
+        if (info.formats.isNullOrEmpty()) {
+            val playlistHint =
+                if (info.type.equals("playlist", ignoreCase = true)) {
+                    " The link resolved to a playlist instead of one video."
+                } else {
+                    ""
+                }
+            throw IllegalStateException("No video formats found in yt-dlp response.$playlistHint")
+        }
+        return info
+    }
 
     @CheckResult
     fun fetchVideoInfoFromUrl(

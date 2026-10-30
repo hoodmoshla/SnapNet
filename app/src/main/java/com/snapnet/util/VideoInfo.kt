@@ -105,13 +105,29 @@ data class Format(
     @SerialName("filesize") val fileSize: Double? = null,
     @SerialName("filesize_approx") val fileSizeApprox: Double? = null,
 ) {
-    fun isAudioOnly(): Boolean = vcodec == null || vcodec == "none"
+    fun isAudioOnly(): Boolean = containsAudio() && !containsVideo()
 
-    fun isVideoOnly(): Boolean = acodec == null || acodec == "none"
+    fun isVideoOnly(): Boolean = containsVideo() && !containsAudio()
 
-    fun containsVideo(): Boolean = vcodec != null && vcodec != "none"
+    /** Prefer explicit codecs; yt-dlp may omit them while still reporting track extensions. */
+    fun containsVideo(): Boolean {
+        vcodec?.let { return !it.equals("none", ignoreCase = true) }
+        videoExt?.takeIf(String::isNotBlank)?.let {
+            return !it.equals("none", ignoreCase = true)
+        }
+        return (width ?: 0.0) > 0.0 ||
+            (height ?: 0.0) > 0.0 ||
+            Regex("\\d+\\s*[x×]\\s*\\d+").containsMatchIn(resolution.orEmpty())
+    }
 
-    fun containsAudio(): Boolean = acodec != null && acodec != "none"
+    /** audio_ext/abr are reliable track signals even when acodec is absent in extractor JSON. */
+    fun containsAudio(): Boolean {
+        acodec?.let { return !it.equals("none", ignoreCase = true) }
+        audioExt?.takeIf(String::isNotBlank)?.let {
+            return !it.equals("none", ignoreCase = true)
+        }
+        return (abr ?: 0.0) > 0.0 || resolution.equals("audio only", ignoreCase = true)
+    }
 }
 
 @Serializable

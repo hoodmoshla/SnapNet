@@ -120,6 +120,9 @@ import com.snapnet.ui.page.downloadv2.configure.DownloadDialogViewModel.SheetSta
 import com.snapnet.ui.page.downloadv2.configure.DownloadDialogViewModel.SheetState.Error
 import com.snapnet.ui.page.downloadv2.configure.DownloadDialogViewModel.SheetState.InputUrl
 import com.snapnet.ui.page.downloadv2.configure.DownloadDialogViewModel.SheetState.Loading
+import com.snapnet.ui.page.downloadv2.downloadErrorDiagnosticId
+import com.snapnet.ui.page.downloadv2.downloadErrorMessageRes
+import com.snapnet.ui.page.downloadv2.redactDownloadErrorDetails
 import com.snapnet.ui.page.settings.command.CommandTemplateDialog
 import com.snapnet.ui.page.settings.format.AudioQuickSettingsDialog
 import com.snapnet.ui.page.settings.format.VideoQuickSettingsDialog
@@ -307,31 +310,30 @@ private fun ErrorPage(modifier: Modifier = Modifier, state: Error, onActionPost:
             modifier = Modifier.size(40.dp),
         )
         Text(
-            text = stringResource(R.string.fetch_info_error_msg),
+            text = stringResource(downloadErrorMessageRes(state.throwable, url)),
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(top = 12.dp),
         )
-        Text(
-            text = state.throwable.message.toString(),
-            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier =
-                Modifier.padding(vertical = 16.dp, horizontal = 20.dp)
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-            maxLines = 20,
-            overflow = TextOverflow.Clip,
-        )
+        downloadErrorDiagnosticId(state.throwable)?.let { diagnosticId ->
+            Text(
+                text = stringResource(R.string.error_diagnostic_id, diagnosticId),
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 16.dp, horizontal = 20.dp),
+            )
+        }
 
         Row(modifier = Modifier) {
-            FilledTonalButton(onClick = { onActionPost(state.action) }) { Text("Retry") }
+            FilledTonalButton(onClick = { onActionPost(state.action) }) { Text(stringResource(R.string.retry)) }
             Spacer(Modifier.width(8.dp))
             Button(
                 onClick = {
                     view.longPressHapticFeedback()
                     clipboardManager.setText(
                         AnnotatedString(
-                            App.getVersionReport() + "\nURL: ${url}\n${state.throwable.message}"
+                            redactDownloadErrorDetails(
+                                App.getVersionReport() + "\nURL: ${url}\n${state.throwable.message}"
+                            )
                         )
                     )
                     ToastUtil.makeToast(R.string.error_copied)
